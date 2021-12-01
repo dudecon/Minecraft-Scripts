@@ -872,7 +872,7 @@ class SaveFile(object):
         # that's it, value extracted, mission completed!
         return value
 
-    def block(self, blk_x, blk_y, blk_z, options='B'):
+    def block(self, blk_x, blk_y, blk_z, options=''):
         """Return relevant block data in a dict.
         The keys to the dict are the option key characters.
         If no options are selected, return the block id as a raw int
@@ -896,7 +896,6 @@ class SaveFile(object):
         # map the method to retrieve half-bytes
         get_half_byte_data = self.get_half_byte_data
         if len(options) > 0: output = {}
-        else: return None
         section = None
         secidx = blk_y // 16
         for sec in data_dict['Sections'].payload:
@@ -1065,15 +1064,15 @@ class SaveFile(object):
         # and we're done
         cur_max_y = self.get_heightmap(blk_x, blk_z)
         # this block is higher than the current limit, and isn't air
-        cur_blk_type = self.block(blk_x, blk_y, blk_z)['B']
+        cur_blk_type = self.block(blk_x, blk_y, blk_z)
         if (blk_y > cur_max_y) and (cur_blk_type != 0):
             self.set_heightmap(blk_x, blk_y, blk_z)
-            print(f"updated heightmap at {blk_x}, {blk_z} from {cur_max_y} to {blk_y}")
+            # print(f"updated heightmap at {blk_x}, {blk_z} from {cur_max_y} to {blk_y}")
         elif (blk_y == cur_max_y) and (cur_blk_type == 0):
             check_y = blk_y
             while check_y > 0:
                 check_y -= 1
-                check_type = self.block(blk_x, check_y, blk_z)['B']
+                check_type = self.block(blk_x, check_y, blk_z)
                 if check_type != 0: break
             self.set_heightmap(blk_x, check_y, blk_z)
         if RELIGHT:
@@ -1281,7 +1280,7 @@ class MCLevelAdapter(object):
 # override the SaveFile class with the adapter class
 if "mcedit" in sys.modules:
     SaveFile = MCLevelAdapter
-
+'''
 # some test functions
 savefile_to_load = "Test"
 mc_level = SaveFile(savefile_to_load)
@@ -1315,7 +1314,7 @@ print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be st
 ## save the file
 # print("saving")
 # mc_level.write()
-
+'''
 
 # To Do
 # Support the "Add" array for extended block types

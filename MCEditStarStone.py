@@ -65,9 +65,9 @@ def perform(level, box, options):
     fill = options["Crater Fill Material"]
     surface = options["Surface Material"]
     
-    StarStone.BOULDERINFO = {"B":boulder.ID, "D":boulder.blockData}
-    StarStone.SURFACEINFO = {"B":fill.ID, "D":fill.blockData}
-    StarStone.FILLINFO = {"B":surface.ID, "D":surface.blockData}
+    StarStone.BOULDER_INFO = {"B":boulder.ID, "D":boulder.blockData}
+    StarStone.SURFACE_INFO = {"B":fill.ID, "D":fill.blockData}
+    StarStone.FILL_INFO = {"B":surface.ID, "D":surface.blockData}
 
     # calculate the center and radius
     x_center = int(box.minx + (box.width / 2))
