@@ -255,7 +255,7 @@ class PostEffect(object):
         self.all_columns.add(coords)
     def add_surface(self):
         mclevel = self.save_file
-        get_height = mclevel.retrieve_heightmap
+        get_height = mclevel.get_heightmap
         set_block = mclevel.set_block
         for column_coords in self.all_columns:
             # randomly skip a fraction of the blocks
