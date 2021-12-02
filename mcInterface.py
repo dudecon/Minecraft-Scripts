@@ -653,7 +653,7 @@ class Region(object):
         self.active_chunks_offsets = offsets
         self.active_chunks_lengths = lengths
         # Aaaaaand we're done.
-        print('.')
+        print('.', end='', flush=True)
         return
 
     def encode_locations(self):
@@ -740,7 +740,7 @@ class Region(object):
 
     def write(self):
         """Save all cached chunks to the region file."""
-        debug = self.file_path + " saving "
+        debug = self.file_path + " saving (dots are chunks)"
         print(debug)
         # map the cached chunk dictionary to the local namespace
         chunks = self.cached_chunks
@@ -788,7 +788,8 @@ class SaveFile(object):
 
     def block_to_idx(self, blk_x, blk_y, blk_z):
         """Convert absolute block cords to an intra-section index."""
-        if blk_y > self.map_height or blk_y < 0: raise IndexError
+        if blk_y > self.map_height or blk_y < 0:
+            raise IndexError
         idx = (blk_y % 16) * 16 * 16 + (blk_z % 16) * 16 + (blk_x % 16)
         return idx
 
@@ -1257,8 +1258,8 @@ class MCLevelAdapter(object):
         if not self.check_box_2d(blk_x, blk_z): return None
         blk_y = self.level.heightMapAt(blk_x, blk_z)
         blk_y = max(0, blk_y - 1)
-
         d = self.block(blk_x, blk_y, blk_z)
+        d['y'] = blk_y
         d['blk_y'] = blk_y
 
         return d

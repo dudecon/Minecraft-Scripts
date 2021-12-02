@@ -23,7 +23,7 @@ Z = 163
 # How large an area do you want them to be in?
 # for example, RADIUS = 10 will place them randomly in
 # a circular area 20 blocks wide.
-RADIUS = 20
+RADIUS = 25
 # NOTE: density will be higher in the center than at the edges.
 
 # If you want boulders, set this to True, otherwise, set it to False
@@ -99,8 +99,7 @@ TREASURE_RARE: list[int] = [11, 49, 41, 42, 57, 56, 56, 74, 89, 87]
 # Larger values result in wider craters.
 # any positive value will work.
 # examples:
-# 0.5 will make a fully underground sphere hollowed out of the rock.
-# 1.0 will make a "crater" cavity that just barely reaches the surface.
+# 0.5 will make a nearly vertical shaft.
 # 5.0 makes a pretty decent crater
 # 8.0 will make a wide crater
 # 100.0 will make a crater so wide, it's not even funny.
@@ -171,7 +170,7 @@ CRATER_DESTROYS = [0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90]
 # Do you want something to look at while the script is running?
 # True turns on lots of printouts on what the script is doing
 # False leaves the extra data out
-VERBOSE = False
+VERBOSE = True
 
 ##############################################################
 #  Don't edit below here unless you know what you are doing  #
@@ -234,23 +233,48 @@ def find_surface(x, y, z, mclevel: mcInterface.SaveFile):
     # move the block up or down until you hit something permeable
     # as defined in CRATER_DESTROYS
     get_block = mclevel.block
-    direction = 0
+    # This is the upper limit of the search
+    map_y = mclevel.get_heightmap(x, z)
+    if map_y is None: return None
+    # if map_y < y:
+    #     direction = -1
+    #     y = map_y
+    y = min(map_y, y)
+    block_type = get_block(x, y, z)
+    if block_type in CRATER_DESTROYS: direction = -1
+    else: direction = 1
+    y += direction
+    rev = False
     while True:
-        info = get_block(x, y, z)
-        if info is None: return None
-        if info in CRATER_DESTROYS:
-            if direction == 1:
-                break
+        if y < 0:
             direction = -1
-            y += direction
-            if y == -1: return None
-        else:
-            if direction == -1:
-                y += 1
-                break
+            y = 0
+        if y >= MAP_HEIGHT:
             direction = 1
-            y += direction
-            if y == MAP_HEIGHT: return None
+            y = MAP_HEIGHT - 1
+        block_type = get_block(x, y, z)
+        if block_type is None: return None
+        if block_type in CRATER_DESTROYS:
+            # permeable
+            if direction == 1:
+                # permeable and moving up by 1
+                # we found it
+                break
+            elif direction > 0:
+                # moving up fast, so reverse
+                direction *= -1
+                rev = True
+            elif direction == -1 and y == 0: return None
+        else:  # we're still in an impermeable zone
+            # impermeable
+            if direction < 0:
+                rev = True
+                # moving down, so reverse
+                direction *= -1
+            elif direction == 1 and y == MAP_HEIGHT - 1: return None
+        if rev and direction != 1: direction //= 2
+        elif not rev: direction *= 2
+        y += direction
     return y
 
 
@@ -303,12 +327,17 @@ def log_set_column(mclevel, x, y_start, y_end, z, log, block_list, set_block, ma
         log_set_block(mclevel, x, y, z, log, block_list, set_block, mat)
 
 
-def log_set_to_surface(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat):
-    y_ht = mclevel.get_heightmap(x, z) + 1
+def log_set_to_surface(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
+    y_ht = mclevel.get_heightmap(x, z)
     if y_ht is None: return
-    y_ht = find_surface(x, y_ht, z, mclevel)
-    if y_ht is None: return
-    y_ht += 1
+    # we don't actually want the "surface" for this
+    # y_ht = find_surface(x, y_ht, z, mclevel)
+    # if y_ht is None: return
+    bd = mclevel.block(x, y_ht, z)
+    while bd != 0:
+        y_ht += 1
+        if y_ht == MAP_HEIGHT: break
+        bd = mclevel.block(x, y_ht, z)
     if y_start > y_ht: return
     # print(f"setting column to surface at {x}, {z} from {y_start} to {y_ht}")
     for y in range(int(y_start), y_ht):
@@ -327,9 +356,9 @@ class SphereObject(object):
     top_offset = 0
 
     def create(self, mclevel: mcInterface.SaveFile, log=False):
-        loc_x = self.loc[0]
-        loc_y = self.loc[1]
-        loc_z = self.loc[2]
+        loc_x = self.loc['x']
+        loc_y = self.loc['y']
+        loc_z = self.loc['z']
         radius = self.size * 0.5
         rad_sqr = radius ** 2
         set_block = mclevel.set_block
@@ -338,8 +367,6 @@ class SphereObject(object):
         for z_off in range(int(radius + 1)):
             # pre-calculate the squared z distance
             sqr_dist_z = z_off ** 2
-            if VERBOSE:
-                print(f"Sphere processing z offset {z_off}")
             for x_off in range(int(radius + 1)):
                 sqr_dist_2d = (x_off ** 2 + sqr_dist_z)
                 if sqr_dist_2d > rad_sqr:
@@ -379,7 +406,7 @@ class SphereObject(object):
     def __init__(self, location=None, mat=None, size=-1):
         # self.loc is the location of the bottom of the sphere
         if location is None:
-            location = [0, 0, 0]
+            location = {}
         if mat is None:
             mat = {'B': 0, 'D': 0}
         self.loc = location
@@ -400,8 +427,8 @@ class Boulder(SphereObject):
         SphereObject.create(self, mclevel)
         if BOULDER_TREASURE:
             coresize = (0.618 + random()) * self.size * 0.5
-            coreloc = self.loc[:]
-            coreloc[1] += (self.size - coresize) * 0.5
+            coreloc = self.loc.copy()
+            coreloc['y'] += int((self.size - coresize) * 0.5)
             i = -1
             num_treasure = len(TREASURE_LIST)
             while True:
@@ -427,7 +454,7 @@ class Boulder(SphereObject):
             mat = BOULDER_INFO
         self.mat = mat
         if location is None:
-            location = [0, 0, 0]
+            location = {}
         self.loc = location
         # if size is not initialized, randomize it!
         if self.size == -1:
@@ -443,9 +470,12 @@ class Crater(SphereObject):
     Has a method to create itself.
     """
 
-    def __init__(self, location=None, depth=None):
+    def __init__(self, location=None):
         if location is None:
-            location = [0, 0, 0]
+            location = {}
+            depth = None
+        else:
+            depth = location['depth']
         if depth is None:
             sizemin = CRATER_DEPTH - DEPTH_RANDOMIZATION
             sizevary = DEPTH_RANDOMIZATION * 2.
@@ -462,8 +492,8 @@ class Crater(SphereObject):
         y = block['y']
         z = block['z']
         # find the planar distance from the block to the center of the crater
-        dist_x = x - self.loc[0]
-        dist_z = z - self.loc[2]
+        dist_x = x - self.loc['x']
+        dist_z = z - self.loc['z']
         # if the block is right under the stone, ignore it and move on
         if dist_x == 0 and dist_z == 0: return None
         # how far is this, in a straight line?
@@ -476,13 +506,13 @@ class Crater(SphereObject):
         # compared to where it was before?
         difference_multiple = (dist_mag + throw_distance) / dist_mag
         # Multiply the distances, get the offsets from the block location
-        offset_x = int(difference_multiple * dist_x)
-        offset_z = int(difference_multiple * dist_z)
+        offset_x = difference_multiple * dist_x
+        offset_z = difference_multiple * dist_z
         # assign the new x and z
-        x = self.loc[0] + offset_x
-        z = self.loc[2] + offset_z
+        x = self.loc['x'] + int(offset_x)
+        z = self.loc['z'] + int(offset_z)
         # randomize the location, based on how far it moved
-        random_dist = throw_distance * .618
+        random_dist = max(1.0, throw_distance * .618)
         random_locs = [i for i in range(-int(random_dist),
                                         int(random_dist + 1))]
         x += choice(random_locs)
@@ -492,29 +522,18 @@ class Crater(SphereObject):
         if y is None: return None
         # slide downhill, away from the center of the crater
         # set up the kick values
-        if dist_x == 0:
-            x_kick = 0
-        else:
-            x_kick = int(dist_x / abs(dist_x))
-        if dist_z == 0:
-            z_kick = 0
-        else:
-            z_kick = int(dist_z / abs(dist_z))
-        # find which is larger, x or z
-        dist_ratio = abs(dist_x / (dist_z + .001))
-        if dist_ratio > 2:
-            # x is much larger, offset only x
-            z_kick = 0
-        elif dist_ratio < .5:
-            # z is much larger, offset only z
-            x_kick = 0
-        # otherwise its about the same, offset both
+        x_kick = int(offset_x / 6.853)
+        if x_kick == 0: x_kick = int(offset_x ** 0)
+        z_kick = int(offset_z / 6.853)
+        if z_kick == 0: z_kick = int(offset_z ** 0)
+
         # keep kicking the block downhill
         new_x = x
         new_z = z
+        rand_kick = (-2,-1,1,2)
         while True:
-            new_x += x_kick
-            new_z += z_kick
+            new_x += x_kick + choice(rand_kick)
+            new_z += z_kick + choice(rand_kick)
             new_y = find_surface(new_x, y, new_z, mclevel)
             if new_y is None: return None
             if new_y >= y: break
@@ -535,7 +554,7 @@ class Crater(SphereObject):
         if CRATER_FILL:
             if VERBOSE: print('filling crater')
             fillsize = self.size
-            fillloc = self.loc[:]
+            fillloc = self.loc.copy()
             filldepth = self.depth * CRATER_FILL
             fill_object = SphereObject(fillloc, FILL_INFO, fillsize)
             # the top offset will equal the sphere size (diameter)
@@ -545,9 +564,17 @@ class Crater(SphereObject):
             fill_object.create(mclevel)
         # displace each block in the log
         if CRATER_EJECTA:
-            if VERBOSE: print('Displacing', len(block_log), 'blocks from a crater.')
+            if VERBOSE:
+                print('Displacing', len(block_log), 'blocks from a crater.')
+                i = 0
             for block in block_log:
                 self.toss_block(block, mclevel)
+                if VERBOSE:
+                    i += 1
+                    if i > 2000:
+                        i = 0
+                        print('.', end='', flush=True)
+            if VERBOSE: print("")
 
 
 def selectlocations(mcmap):
@@ -565,28 +592,35 @@ def selectlocations(mcmap):
         x = X + int(rad * sin(ang) + .5)
         z = Z + int(rad * cos(ang) + .5)
         # check to see if this location is suitable
-        y_top = mcmap.surface_block(x, z)
+        y_top = mcmap.get_heightmap(x, z)
         if y_top is None:
             # this location is off the map!
             # Try somewhere else
             continue
-
-        ychoices = [y_top["y"]]
-        if BURIED_BOULDERS:
-            ychoices += [i for i in range(0, y_top['y'])]
-        if FLYING_BOULDERS:
-            ychoices += [i for i in range(y_top['y'] + 1, MAP_HEIGHT)]
-        y = choice(ychoices)
-        if CRATERS:
-            y = find_surface(x, y, z, mcmap)
-            if y is None: continue
-            depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
-            y += -depth
-        else:
-            depth = 0
-        if VERBOSE: print(x, y, z)
-        featurelocs += [[x, y, z, depth]]
+        if VERBOSE: print("feature location", x, z)
+        featurelocs.append({'x':x, 'z':z, 'y':y_top})
     return featurelocs
+
+
+def set_height(loc, mcmap: mcInterface.SaveFile):
+    # loc = {x, ~y (top) update, z, ~depth}
+    y_top = loc['y']
+    if not CRATERS:
+        ychoices = [y_top]
+        if BURIED_BOULDERS:
+            ychoices += [i for i in range(0, y_top)]
+        if FLYING_BOULDERS:
+            ychoices += [i for i in range(y_top + 1, MAP_HEIGHT)]
+        y = choice(ychoices)
+    else:
+        y = find_surface(loc['x'], y_top, loc['z'], mcmap)
+        if y is None: return None
+        if 'boulder' not in loc:
+            depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
+            depth = min(y, depth)
+            y += int(-depth)
+            loc['depth'] = depth
+    loc['y'] = y
 
 
 def main(the_map):
@@ -600,13 +634,21 @@ def main(the_map):
         print('Making craters')
         for loc in locations:
             print(f'Excavating {loc}')
-            thiscrater = Crater(loc[:3], loc[3])
+            set_height(loc, the_map)
+            if 'depth' not in loc: continue
+            thiscrater = Crater(loc)
             thiscrater.create(the_map)
 
     if BOULDERS:
         print('Making boulders ')
         for loc in locations:
-            if not CRATERS: print(f'Boulder at {loc}')
+            if not CRATERS:
+                set_height(loc, the_map)
+                print(f'Boulder at {loc}')
+            else:
+                if 'depth' not in loc: continue  # this location was not populated
+                loc['boulder'] = True
+                set_height(loc, the_map)
             thisboulder = Boulder(loc)
             thisboulder.create(the_map)
         print(' done')
