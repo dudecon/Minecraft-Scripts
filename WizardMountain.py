@@ -14,8 +14,8 @@ LOAD_NAME = "Test"
 
 # Where do you want the mountain centered?
 # X, and Z are the map coordinates of the center tower
-X = 11
-Z = 351
+X = 13
+Z = 274
 
 # How large (maximum) do you want the mountain?
 # for example, RADIUS = 10 will make a 21 block diameter mountain
@@ -97,7 +97,7 @@ from random import random
 from math import sqrt
 
 
-def find_surface(x, y, z, search, mclevel: mcInterface.mc_level, invert=False):
+def find_surface(x, y, z, search, mclevel: mcInterface.SaveFile, invert=False):
     """return the y position on top of blocks you are searching for."""
     # moves down if not in search, up if in search.
     # x, y, z int, The starting location for the search
@@ -107,6 +107,7 @@ def find_surface(x, y, z, search, mclevel: mcInterface.mc_level, invert=False):
     Block = mclevel.block
     direction = 0
     # check to see if this block exists
+    # print('find surface cords', x, y, z)
     info = Block(x, y, z)
     if info is None: return None
     while True:
@@ -135,7 +136,9 @@ def find_surface(x, y, z, search, mclevel: mcInterface.mc_level, invert=False):
             direction = 1
             y += direction
             # check if you just went off the top of the map
-            if y > MAPTOP: return None
+            if y > MAPTOP:
+                y = MAPTOP
+                break
     return y
 
 
@@ -180,7 +183,7 @@ class FlyingMountain(object):
     """A mountain, floating in the sky.
     Contains a 2d map of contiguous square objects that
     conform to the surface."""
-    save_file: mcInterface.mc_level
+    save_file: mcInterface.SaveFile
 
     @staticmethod
     def loc_to_coords(loc):
@@ -300,7 +303,7 @@ class FlyingMountain(object):
         self.grow_square(square)
         self.origin = square
 
-    def __init__(self, save_file: mcInterface.mc_level):
+    def __init__(self, save_file: mcInterface.SaveFile):
         self.save_file = save_file
         # the squares outside the border
         self.outside = {}
@@ -360,7 +363,7 @@ class FlyingMountain(object):
                 print("Raised " + str(this_depth) + "blocks at " + str((x, z)))
 
 
-def main(the_map: mcInterface.mc_level):
+def main(the_map: mcInterface.SaveFile):
     """Load the file, do the stuff, and save the new file.
     """
     print("Finding the mountain")
@@ -387,7 +390,7 @@ def standalone():
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
     global MAPTOP
-    MAPTOP = the_map.map_height()
+    MAPTOP = the_map.map_height
     main(the_map)
     print("Saving the map (takes a bit)")
     if the_map.write():
