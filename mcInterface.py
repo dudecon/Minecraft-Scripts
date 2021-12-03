@@ -1,6 +1,6 @@
 # Version 1.18
-"""an interface module to allow read/write access to Minecraft files
-Also works to adapt the script as an MCEdit filter or it used to"""
+"""an interface module to allow read/write access to Minecraft save files
+"""
 
 # Read and write are implemented now.
 # Works with the Minecraft 1.13 and later file format
@@ -17,13 +17,13 @@ RELIGHT = True
 ##############################################################
 
 import gzip
-import sys
 import time
 import zlib
 from struct import pack, unpack
 
 COORD_MAP = {'x': 0, 'y': 1, 'z': 2}
 ROT_MAP = {'yaw': 0, 'pitch': 1}
+
 
 def raw_readout(raw_data, cap=144, start=0):
     """Print the raw data of the string, for debugging purposes.
@@ -383,7 +383,7 @@ class NbtTag10(NbtTagBase):
     """TAG_Compound, this tag can contain other tags also! The Horror!"""
     tag_type = 10
 
-    # this one turned to to be easier than the TAG_List
+    # this one turned to be easier than the TAG_List
     def getPayload(self):
         """read in all sub-tags into a dict"""
         # map the get_data method for easy access
@@ -406,7 +406,7 @@ class NbtTag10(NbtTagBase):
     def encodePayload(self):
         # initialize the output string
         output = b''
-        # string together all of the sub tags
+        # string together all the sub tags
         payload = self.payload
         for key in payload:
             tag = payload[key]
@@ -485,7 +485,7 @@ class NbtData(object):
         return data
 
     def __init__(self, source_data, current_location=0):
-        """Read in and parse all of the data.
+        """Read in and parse all the data.
         source_data : a byte string containing the raw NBT format data.
         current_location : an integer offset, in case you want to start
         in the middle of a file."""
@@ -514,7 +514,7 @@ class NbtData(object):
         """make a clean string representation of the NBT file contents"""
         # an empty string to start with
         output = ''
-        # string all of the output strings together
+        # string all the output strings together
         for tag in self.tags:
             output += str(tag) + '\n'
         # and spit it out, easy as pie!
@@ -528,7 +528,7 @@ class NbtData(object):
 
 
 class NbtNew(NbtData):
-    """a dummy data ob for making new tags so we can clobber them"""
+    """a dummy data ob for making new tags, so we can clobber them"""
 
     def get_data(self, length):
         nothing = pack('>B', 0)
@@ -597,7 +597,7 @@ class Region(object):
         # plus the length bytes (4)
         # plus the encoding (1)
         data_length = len(compressed_chunk) + 5
-        # calculate the new length in 4kiB chunks
+        # calculate the new length in 4 kiB chunks
         # round up (floor division, then add 1)
         new_length = (data_length // (2 ** 12)) + 1
         # calculate how much to pad the data, to make it fit properly
@@ -625,7 +625,7 @@ class Region(object):
             lengths[num] = new_length
             # print('altering offsets for ',num ,' at ',offset,' delta length: ', length_difference)
             # print('new length', new_length)
-            # go though the active chunks
+            # go through the active chunks
             for key in offsets:
                 # get this chunk's offset
                 chunk_offset = offsets[key]
@@ -640,7 +640,7 @@ class Region(object):
         # map the block to a local
         raw = self.raw_block
         # the internal offset will be two less (missing headers)
-        # and converted to 4kiB
+        # and converted to 4 kiB
         start = (offset - 2) * (2 ** 12)
         end = (offset + old_length - 2) * (2 ** 12)
         # slice off the front
@@ -690,7 +690,7 @@ class Region(object):
         timestamp = int(time.time())
         # pack it as a 4 byte int
         raw_timestamp = pack('>I', timestamp)
-        # update all of the cached chunks
+        # update all the cached chunks
         for idx in self.cached_chunks:
             start = idx * 4
             end = start + 4
@@ -773,8 +773,10 @@ class SaveFile(object):
     save_file: string with file name
     """
 
-    # the top height of the map, which is 255 in the current save format
-    map_height: int = 255
+    # the top height of the map
+    # note that the user-facing y height is this -65 since the height now goes down to -64
+    # all the map data and scripts use y starting at 0
+    map_height: int = 384
 
     def __init__(self, foldername):
         """Initialize and read in basic file data."""
@@ -954,9 +956,21 @@ class SaveFile(object):
         data_list = chunk.tags[0].payload["Heightmaps"].payload['WORLD_SURFACE'].payload
         # find the location index, based on the coordinates
         # note the reversed coordinate ordering
-        idx = (blk_x % 16) + (blk_z % 16) * 16
-        # the data value stores the lowest block where light is at full strength
-        y_ht = data_list[idx]
+        offset = (blk_x % 16) + (blk_z % 16) * 16
+        pld_idx = offset // 7
+        bin_str = bin(data_list[pld_idx])[2:]
+        bin_idx = offset % 7
+        if bin_idx == 0:
+            start = '-9'
+            end = ''
+        elif bin_idx == 6:
+            start = ''
+            end = '-54'
+        else:
+            start = str((bin_idx + 1) * -9)
+            end = str(bin_idx * -9)
+        # the data value stores the highest non-air block
+        y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2)
         return y_ht
 
     def get_map_data(self):
@@ -1078,9 +1092,9 @@ class SaveFile(object):
         # map the method to retrieve half-bytes
         set_half_byte_data = self.set_half_byte_data
         # make a default writer for non-block data.
-        # :use set_half_byte_data(data_list, idx, value)
+        # use set_half_byte_data(data_list, idx, value)
         # make a writer for block data.
-        # :just assign at the index on the appropriate list
+        # just assign at the index on the appropriate list
         # do an if-then to execute the changes
         section = None
         secidx = blk_y // 16
@@ -1161,7 +1175,7 @@ class SaveFile(object):
         dat_file_path = self.save_folder + "/" + "level.dat"
         # open the file
         dat_file = gzip.open(dat_file_path)
-        # read in all of the contents
+        # read in all the contents
         dat_data = dat_file.read()
         # close the file
         dat_file.close()
@@ -1249,87 +1263,9 @@ class SaveFile(object):
         return True
 
 
-# dummy mcInterface to adapt dudecon's interface to MCEdit's
-#
-# Thanks to codewarrior for the original adapter class.
-# http://www.minecraftforum.net/user/6783-codewarrior/
-
-class MCLevelAdapter(object):
-    def __init__(self, level, box):
-        self.level = level
-        self.box = box
-
-    def check_box_2d(self, blk_x, blk_z):
-        box = self.box
-        if blk_x < box.minx or blk_x >= box.maxx: return False
-        if blk_z < box.minz or blk_z >= box.maxz: return False
-        return True
-
-    def check_box_3d(self, blk_x, blk_y, blk_z):
-        """If the coordinates are within the box, return True, else return False"""
-        box = self.box
-        if not self.check_box_2d(blk_x, blk_z): return False
-        if blk_y < box.miny or blk_y >= box.maxy: return False
-        return True
-
-    def map_height(self):
-        """return the top height of the "map", which is the selection region in this case."""
-        box = self.box
-        top = box.maxy
-        # print("Top of the Box is {0}".format(top))
-        return top
-
-    def block(self, blk_x, blk_y, blk_z, options="B"):
-        if not self.check_box_3d(blk_x, blk_y, blk_z): return None
-        d = {}
-        if "B" in options:
-            d['B'] = self.level.blockAt(blk_x, blk_y, blk_z)
-        if "D" in options:
-            d['D'] = self.level.blockDataAt(blk_x, blk_y, blk_z)
-        if "S" in options:
-            d['S'] = 0
-        if "L" in options:
-            d['L'] = 0
-        return d
-
-    def set_block(self, blk_x, blk_y, blk_z, d):
-        if not self.check_box_3d(blk_x, blk_y, blk_z): return None
-        if 'B' in d:
-            self.level.setBlockAt(blk_x, blk_y, blk_z, d['B'])
-        if 'D' in d:
-            self.level.setBlockDataAt(blk_x, blk_y, blk_z, d['D'])
-
-    def surface_block(self, blk_x, blk_z):
-        if not self.check_box_2d(blk_x, blk_z): return None
-        blk_y = self.level.heightMapAt(blk_x, blk_z)
-        blk_y = max(0, blk_y - 1)
-        d = self.block(blk_x, blk_y, blk_z)
-        d['y'] = blk_y
-        d['blk_y'] = blk_y
-
-        return d
-
-    @staticmethod
-    def retrieve_heightmap(blk_x, blk_z):
-        # dummy implementation
-        a = blk_x * blk_z * 0
-        return a
-
-    @staticmethod
-    def set_heightmap(blk_x, blk_y, blk_z):
-        # dummy implementation
-        a = blk_x * blk_y * blk_z * 0
-        return a
-
-
-# if we are running in the MCEdit environment
-# override the SaveFile class with the adapter class
-if "mcedit" in sys.modules:
-    SaveFile = MCLevelAdapter
-
 # some test functions
-# savefile_to_load = "Test"
-# mc_level = SaveFile(savefile_to_load)
+savefile_to_load = "Test"
+mc_level = SaveFile(savefile_to_load)
 # print the dat file
 # print(mc_level.dat)
 # change the spawn location
@@ -1339,14 +1275,14 @@ if "mcedit" in sys.modules:
 ## mc_level.write_dat()
 
 
-# x = 17
-# y = 131
-# z = 307
-#
+x = 84
+y = 319+65
+z = -35
+
 # print(f'chunk at {x}, {z}')
 # print(mc_level.get_chunk_from_cord(x, z))
-# print('heightmap ', mc_level.get_heightmap(x, z))
-# print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be stone")
+print('heightmap ', mc_level.get_heightmap(x, z))
+print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
 
 # for i in mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload: print(i)
 # sects = mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload['Sections']
