@@ -88,7 +88,8 @@ DEPTHOFFSET = int(DEPTHOFFSET)
 import mcInterface
 
 # Map height limits
-MAPTOP = 255
+# gets clobbered from the map height data on map import
+MAPTOP = 384
 MAPBTM = 0
 
 # Now, on to the actual code.
@@ -344,6 +345,7 @@ class FlyingMountain(object):
             if start_y < MAPBTM: start_y = MAPBTM
             end_y = MAPTOP
             # go from top to bottom, offseting all the blocks
+            height_set = False
             for this_y in range(end_y, start_y, -1):
                 new_y = this_y + HEIGHT
                 if new_y > MAPTOP:
@@ -352,13 +354,20 @@ class FlyingMountain(object):
                 block_data = Block(x, this_y, z, 'BDSL')
                 if block_data is None:
                     block_data = air_block_data
+                elif not height_set:
+                    height_set = True
+                    old_height = self.save_file.get_heightmap(x, z)
+                    new_height = old_height + this_depth - 1
+                    if new_height > MAPTOP: new_height = MAPTOP
+                    self.save_file.set_heightmap(x, new_height, z)
                 set_block(x, new_y, z, block_data)
                 set_block(x, this_y, z, air_block_data)
             # correct the height map
             old_height = self.save_file.get_heightmap(x, z)
             new_height = old_height + this_depth - 1
             if new_height > MAPTOP: new_height = MAPTOP
-            self.save_file.set_heightmap(x, new_height, z)
+            # no longer needed, as we set this on block assignment
+            # self.save_file.set_heightmap(x, new_height, z)
             if VERBOSE:
                 print("Raised " + str(this_depth) + "blocks at " + str((x, z)))
 

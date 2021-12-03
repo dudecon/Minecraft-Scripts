@@ -48,7 +48,7 @@ BOULDER_TREASURE = 0.5
 
 # Should the boulders be scattered throughout the level vertically as well?
 # Frees the boulders from the surface and makes them appear randomly in the 
-# y axis as well.  This can result in boulders underground BURIED_BOULDERS
+# y-axis as well.  This can result in boulders underground BURIED_BOULDERS
 # or floating in the air FLYING_BOULDERS
 # If either is set to true, this will force CRATERS to turn off.
 FLYING_BOULDERS = False
@@ -129,7 +129,7 @@ EJECTA_DISTANCE = 1.1
 # 0 do not add surface blocks
 # 0.1 adds to 1/10th of the blocks (sparse)
 # 0.5 adds to half the blocks (thick)
-# 1.0 (or more) adds to all of the blocks (complete)
+# 1.0 (or more) adds to all the blocks (complete)
 SURFACE_FRACTION = 0
 
 # What block type should the surface blocks be?
@@ -163,9 +163,9 @@ FILL_DATA = 0
 # What materials should be ignored by craters?
 # These materials will be destroyed rather than displaced.
 # a list of material index types.
-# default: [0,6,8,9,10,11,18,20,37,38,39,40,50,51,59,90]
+# default: {0,6,8,9,10,11,18,20,37,38,39,40,50,51,59,90}
 
-CRATER_DESTROYS = [0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90]
+CRATER_DESTROYS = {0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90}
 
 # Do you want something to look at while the script is running?
 # True turns on lots of printouts on what the script is doing
@@ -229,20 +229,30 @@ from random import random, choice
 from math import sqrt, sin, cos, pi
 
 
+def get_heightmap(x, z, mclevel):
+    hmnl = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
+    hmof = mclevel.get_heightmap(x, z, "OCEAN_FLOOR")
+    if (hmnl is None) or (hmof is None): return None
+    y = min(hmnl, hmof)
+    return y
+
+
 def find_surface(x, y, z, mclevel: mcInterface.SaveFile):
     # move the block up or down until you hit something permeable
     # as defined in CRATER_DESTROYS
     get_block = mclevel.block
     # This is the upper limit of the search
-    map_y = mclevel.get_heightmap(x, z)
+    map_y = get_heightmap(x, z, mclevel)
     if map_y is None: return None
     # if map_y < y:
     #     direction = -1
     #     y = map_y
     y = min(map_y, y)
     block_type = get_block(x, y, z)
-    if block_type in CRATER_DESTROYS: direction = -1
-    else: direction = 1
+    if block_type in CRATER_DESTROYS:
+        direction = -1
+    else:
+        direction = 1
     y += direction
     rev = False
     while True:
@@ -264,16 +274,20 @@ def find_surface(x, y, z, mclevel: mcInterface.SaveFile):
                 # moving up fast, so reverse
                 direction *= -1
                 rev = True
-            elif direction == -1 and y == 0: return None
+            elif direction == -1 and y == 0:
+                return None
         else:  # we're still in an impermeable zone
             # impermeable
             if direction < 0:
                 rev = True
                 # moving down, so reverse
                 direction *= -1
-            elif direction == 1 and y == MAP_HEIGHT - 1: return None
-        if rev and direction != 1: direction //= 2
-        elif not rev: direction *= 2
+            elif direction == 1 and y == MAP_HEIGHT - 1:
+                return None
+        if rev and direction != 1:
+            direction //= 2
+        elif not rev:
+            direction *= 2
         y += direction
     return y
 
@@ -288,7 +302,6 @@ class PostEffect(object):
 
     def add_surface(self):
         mclevel = self.save_file
-        get_height = mclevel.get_heightmap
         set_block = mclevel.set_block
         for column_coords in self.all_columns:
             # randomly skip a fraction of the blocks
@@ -297,7 +310,7 @@ class PostEffect(object):
             x = column_coords[0]
             z = column_coords[1]
             # get the current heightmap
-            cur_height = get_height(x, z)
+            cur_height = get_heightmap(x, z, mclevel)
             # find the true surface
             y = find_surface(x, cur_height, z, mclevel)
             if y is None: continue
@@ -328,7 +341,7 @@ def log_set_column(mclevel, x, y_start, y_end, z, log, block_list, set_block, ma
 
 
 def log_set_to_surface(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
-    y_ht = mclevel.get_heightmap(x, z)
+    y_ht = get_heightmap(x, z, mclevel)
     if y_ht is None: return
     # we don't actually want the "surface" for this
     # y_ht = find_surface(x, y_ht, z, mclevel)
@@ -375,7 +388,7 @@ class SphereObject(object):
                 y_start = max(loc_y + radius - sqrt_dist,
                               loc_y + self.bottom_offset, 0)
                 y_end = min(loc_y + radius + sqrt_dist,
-                              loc_y + radius*2 - self.top_offset + 1, MAP_HEIGHT)
+                            loc_y + radius * 2 - self.top_offset + 1, MAP_HEIGHT)
                 x = loc_x + x_off
                 z = loc_z + z_off
                 self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
@@ -403,7 +416,7 @@ class SphereObject(object):
         else:
             return None
 
-    def __init__(self, location=None, mat=None, size=-1):
+    def __init__(self, location=None, mat=None, size=-1.0):
         # self.loc is the location of the bottom of the sphere
         if location is None:
             location = {}
@@ -423,8 +436,8 @@ class Boulder(SphereObject):
     Has some material properties, and a method to create itself.
     """
 
-    def create(self, mclevel):
-        SphereObject.create(self, mclevel)
+    def create(self, mclevel, log=False):
+        blocklog = SphereObject.create(self, mclevel, log)
         if BOULDER_TREASURE:
             coresize = (0.618 + random()) * self.size * 0.5
             coreloc = self.loc.copy()
@@ -447,8 +460,9 @@ class Boulder(SphereObject):
 
             core = SphereObject(coreloc, {'B': coremat, 'D': 0}, coresize)
             core.create(mclevel)
+        if log: return blocklog
 
-    def __init__(self, location=None, mat=None, size=-1):
+    def __init__(self, location=None, mat=None, size=-1.0):
         SphereObject.__init__(self, location=location, mat=mat, size=size)
         if mat is None:
             mat = BOULDER_INFO
@@ -457,7 +471,7 @@ class Boulder(SphereObject):
             location = {}
         self.loc = location
         # if size is not initialized, randomize it!
-        if self.size == -1:
+        if self.size <= 0:
             sizemin = BOULDER_SIZE - BOULDER_RANDOMIZATION
             sizevary = BOULDER_RANDOMIZATION * 2.
             size = sizemin + random() * sizevary
@@ -530,7 +544,7 @@ class Crater(SphereObject):
         # keep kicking the block downhill
         new_x = x
         new_z = z
-        rand_kick = (-2,-1,1,2)
+        rand_kick = (-2, -1, 1, 2)
         while True:
             new_x += x_kick + choice(rand_kick)
             new_z += z_kick + choice(rand_kick)
@@ -544,9 +558,11 @@ class Crater(SphereObject):
         result = mclevel.set_block(x, y, z, block['data'])
         if SURFACE_FRACTION:
             PostEffect_master.add(x, z)
+        for crd in ('x', 'y', 'z'):
+            exec(f'block["{crd}"] = {crd}')
         return result
 
-    def create(self, mclevel):
+    def create(self, mclevel, log=False):
         # excevate the crater
         # log the materials displaced if necessary
         block_log = SphereObject.create(self, mclevel, log=CRATER_EJECTA)
@@ -575,6 +591,7 @@ class Crater(SphereObject):
                         i = 0
                         print('.', end='', flush=True)
             if VERBOSE: print("")
+        if log: return block_log
 
 
 def selectlocations(mcmap):
@@ -592,16 +609,17 @@ def selectlocations(mcmap):
         x = X + int(rad * sin(ang) + .5)
         z = Z + int(rad * cos(ang) + .5)
         # check to see if this location is suitable
-        y_top = mcmap.get_heightmap(x, z)
+        y_top = get_heightmap(x, z, mcmap)
         if y_top is None:
             # this location is off the map!
             # Try somewhere else
             continue
         if VERBOSE: print("feature location", x, z)
-        featurelocs.append({'x':x, 'z':z, 'y':y_top})
+        featurelocs.append({'x': x, 'z': z, 'y': y_top})
     return featurelocs
 
 
+# noinspection PyTypeChecker
 def set_height(loc, mcmap: mcInterface.SaveFile):
     # loc = {x, ~y (top) update, z, ~depth}
     y_top = loc['y']

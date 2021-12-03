@@ -945,20 +945,21 @@ class SaveFile(object):
         # spit it out
         return output
 
-    def get_heightmap(self, blk_x, blk_z):
-        """Return the y value of the heightmap at coordinates x, z."""
+    def all_height_data(self, blk_x, blk_z):
         # get the chunk
         chunk = self.get_chunk_from_cord(blk_x, blk_z)
         # if the chunk doesn't exist, return None
         if chunk is None:
             return None
-        # map the list storing the height map
-        data_list = chunk.tags[0].payload["Heightmaps"].payload['WORLD_SURFACE'].payload
+        data_list = chunk.tags[0].payload["Heightmaps"].payload
+        return data_list
+
+    @staticmethod
+    def heightmap_pli_st_ed(blk_x, blk_z):
         # find the location index, based on the coordinates
         # note the reversed coordinate ordering
         offset = (blk_x % 16) + (blk_z % 16) * 16
         pld_idx = offset // 7
-        bin_str = bin(data_list[pld_idx])[2:]
         bin_idx = offset % 7
         if bin_idx == 0:
             start = '-9'
@@ -969,6 +970,21 @@ class SaveFile(object):
         else:
             start = str((bin_idx + 1) * -9)
             end = str(bin_idx * -9)
+        return pld_idx, start, end
+
+    valid_heightmaps = {"WORLD_SURFACE",
+                        "MOTION_BLOCKING",
+                        "MOTION_BLOCKING_NO_LEAVES",
+                        "OCEAN_FLOOR"}
+
+    def get_heightmap(self, blk_x, blk_z, map_name = 'WORLD_SURFACE'):
+        """Return the y value of the heightmap at coordinates x, z.
+        """
+        assert map_name in self.valid_heightmaps
+        # map the list storing the height map
+        data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
+        pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
+        bin_str = bin(data_list[pld_idx])[2:]
         # the data value stores the highest non-air block
         y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2)
         return y_ht
@@ -1016,20 +1032,22 @@ class SaveFile(object):
             if k in rot:
                 rot_data[ROT_MAP[k]].payload = rot[k]
 
-    def set_heightmap(self, blk_x, blk_y, blk_z):
+    def set_heightmap(self, blk_x, blk_y, blk_z, map_name = 'WORLD_SURFACE'):
         """Set the x, z value in the heightmap to y"""
-        # get the chunk
-        chunk = self.get_chunk_from_cord(blk_x, blk_z)
-        # if the chunk doesn't exist, return None
-        if chunk is None:
-            return None
-        # map the list storing the height map
-        data_list = chunk.tags[0].payload["Level"].payload['HeightMap'].payload
-        # find the location index, based on the coordinates
-        # note the reversed coordinate ordering
-        idx = (blk_x % 16) + (blk_z % 16) * 16
-        # the data value stores the lowest block where light is at full strength
-        data_list[idx] = blk_y
+        assert map_name in self.valid_heightmaps
+        data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
+        pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
+        old_bin = bin(data_list[pld_idx])[2:]
+        bin_ins = bin(blk_y)[2:]
+        bin_len = len(bin_ins)
+        if bin_len > 9: bin_ins = bin_ins[-9:]
+        if bin_len < 9:
+            pad = '0'*(9 - bin_len)
+            bin_ins = pad + bin_ins
+        if start == '': new_bin = bin_ins + eval(f'old_bin[{end}:]')
+        elif end == '': new_bin = eval(f'old_bin[:{start}]') + bin_ins
+        else: new_bin = eval(f'old_bin[:{start}]') + bin_ins + eval(f'old_bin[{end}:]')
+        data_list[pld_idx] = int(new_bin, base=2)
         return True
 
     @staticmethod
@@ -1125,38 +1143,39 @@ class SaveFile(object):
         cur_max_y = self.get_heightmap(blk_x, blk_z)
         # this block is higher than the current limit, and isn't air
         cur_blk_type = self.block(blk_x, blk_y, blk_z)
-        if (blk_y > cur_max_y) and (cur_blk_type != 0):
-            self.set_heightmap(blk_x, blk_y, blk_z)
-            # print(f"updated heightmap at {blk_x}, {blk_z} from {cur_max_y} to {blk_y}")
-        elif (blk_y == cur_max_y) and (cur_blk_type == 0):
-            check_y = blk_y
-            while check_y > 0:
-                check_y -= 1
-                check_type = self.block(blk_x, check_y, blk_z)
-                if check_type != 0: break
-            self.set_heightmap(blk_x, check_y, blk_z)
+        if "H" in settings:
+            if (blk_y > cur_max_y) and (cur_blk_type != 0):
+                self.set_heightmap(blk_x, blk_y, blk_z)
+                # print(f"updated heightmap at {blk_x}, {blk_z} from {cur_max_y} to {blk_y}")
+            elif (blk_y == cur_max_y) and (cur_blk_type == 0):
+                check_y = blk_y
+                while check_y > 0:
+                    check_y -= 1
+                    check_type = self.block(blk_x, check_y, blk_z)
+                    if check_type != 0: break
+                self.set_heightmap(blk_x, check_y, blk_z)
         if RELIGHT:
             # Dirty the lighting, because it's easier to have Minecraft do it
             chunk.tags[0].payload["Level"].payload['LightPopulated'].payload = 0
         return True
 
     def surface_block(self, blk_x, blk_z, options='B'):
-        """Return a dict of the highest block at the x, z cords.
+        """Return a dict of the highest non-air block at the x, z cords.
         Similar to block() but finds the highest block in the column.
         x, z : coordinates of target column
         options : same as for retrieve_block_data()
         Except! Add the y value to the dict, under the key 'y'
         """
-        # get the y coordinate of the heightmap
-        # this should be the block above the surface of the map
-        y_ht = self.get_heightmap(blk_x, blk_z)
+        # get the y coordinate of the heightmap not including leaves
+        # this should be the block at the surface of the map
+        y_ht = self.get_heightmap(blk_x, blk_z, 'MOTION_BLOCKING_NO_LEAVES')
         # if the chunk containing the x, z cords has not been generated
         # then return None
         if y_ht is None:
             return None
         # if you got a good value, subtract one to get the surface block
-        y_ht += -1
-        if y_ht == -1: y_ht = 0
+        # y_ht += -1
+        # if y_ht == -1: y_ht = 0
         # get the block data
         output = self.block(blk_x, y_ht, blk_z, options)
         # add the y value, so we have it later if we want.
@@ -1264,8 +1283,8 @@ class SaveFile(object):
 
 
 # some test functions
-savefile_to_load = "Test"
-mc_level = SaveFile(savefile_to_load)
+# savefile_to_load = "Test"
+# mc_level = SaveFile(savefile_to_load)
 # print the dat file
 # print(mc_level.dat)
 # change the spawn location
@@ -1275,14 +1294,19 @@ mc_level = SaveFile(savefile_to_load)
 ## mc_level.write_dat()
 
 
-x = 84
-y = 319+65
-z = -35
+# x = 84
+# y = 319+65
+# y = 17
+# z = -35
 
 # print(f'chunk at {x}, {z}')
 # print(mc_level.get_chunk_from_cord(x, z))
-print('heightmap ', mc_level.get_heightmap(x, z))
-print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
+# print('heightmap ', mc_level.get_heightmap(x, z))
+# print(f'setting to {y}')
+# mc_level.set_heightmap(x, y, z)
+# print('new heightmap ', mc_level.get_heightmap(x, z))
+# print(mc_level.surface_block(x, z))
+# print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
 
 # for i in mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload: print(i)
 # sects = mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload['Sections']

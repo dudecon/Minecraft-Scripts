@@ -139,15 +139,20 @@ import mcInterface
 
 # Now, on to the actual code.
 
+NON_SUPPORTING_BLOCKS = {0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90}
+
 def get_surface(x, y, z, mclevel: mcInterface.SaveFile):
-    """Return the Y position of the highest non-air block at or below x,y,z."""
-    surf_height = mclevel.get_heightmap(x, z)
+    """Return the Y position of the highest 'solid' block at or below x,y,z."""
+    hmnl = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
+    hmof = mclevel.get_heightmap(x, z, "OCEAN_FLOOR")
+    if (hmnl is None) or (hmof is None): return None
+    surf_height = min(hmnl, hmof)
     if y > surf_height: return surf_height
     get_block = mclevel.block
     while y > MAPBTM:
         info = get_block(x, y, z)
         if info is None: return None
-        if info != 0: break
+        if info not in NON_SUPPORTING_BLOCKS: break
         y -= 1
     return y
 
