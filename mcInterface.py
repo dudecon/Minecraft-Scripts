@@ -977,7 +977,7 @@ class SaveFile(object):
                         "MOTION_BLOCKING_NO_LEAVES",
                         "OCEAN_FLOOR"}
 
-    def get_heightmap(self, blk_x, blk_z, map_name = 'WORLD_SURFACE'):
+    def get_heightmap(self, blk_x, blk_z, map_name='WORLD_SURFACE'):
         """Return the y value of the heightmap at coordinates x, z.
         """
         assert map_name in self.valid_heightmaps
@@ -1032,7 +1032,7 @@ class SaveFile(object):
             if k in rot:
                 rot_data[ROT_MAP[k]].payload = rot[k]
 
-    def set_heightmap(self, blk_x, blk_y, blk_z, map_name = 'WORLD_SURFACE'):
+    def set_heightmap(self, blk_x, blk_y, blk_z, map_name='WORLD_SURFACE'):
         """Set the x, z value in the heightmap to y"""
         assert map_name in self.valid_heightmaps
         data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
