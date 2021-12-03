@@ -1,9 +1,9 @@
-# Version 9
-"""an interface module to allow read/write access to Minecraft Beta files
-Also works to adapt the script as an MCEdit filter"""
+# Version 1.18
+"""an interface module to allow read/write access to Minecraft files
+Also works to adapt the script as an MCEdit filter or it used to"""
 
 # Read and write are implemented now.
-# Works with the Anvil file format
+# Works with the Minecraft 1.13 and later file format
 # 
 # Paul Spooner
 # www.peripheralarbor.com
@@ -22,6 +22,8 @@ import time
 import zlib
 from struct import pack, unpack
 
+COORD_MAP = {'x': 0, 'y': 1, 'z': 2}
+ROT_MAP = {'yaw': 0, 'pitch': 1}
 
 def raw_readout(raw_data, cap=144, start=0):
     """Print the raw data of the string, for debugging purposes.
@@ -949,13 +951,56 @@ class SaveFile(object):
         if chunk is None:
             return None
         # map the list storing the height map
-        data_list = chunk.tags[0].payload["Level"].payload['HeightMap'].payload
+        data_list = chunk.tags[0].payload["Heightmaps"].payload['WORLD_SURFACE'].payload
         # find the location index, based on the coordinates
         # note the reversed coordinate ordering
         idx = (blk_x % 16) + (blk_z % 16) * 16
         # the data value stores the lowest block where light is at full strength
         y_ht = data_list[idx]
         return y_ht
+
+    def get_map_data(self):
+        """returns a dictionary which is the mutable map data. Change and save to update."""
+        map_payload = self.dat.tags[0].payload['Data'].payload
+        # print(map_payload)
+        return map_payload
+
+    def get_player(self):
+        """returns a dictionary which is the mutable player data. Change and save to update."""
+        player_payload = self.get_map_data()['Player'].payload
+        # print(player_payload)
+        return player_payload
+
+    def get_player_pos(self):
+        pos_data = self.get_player()['Pos'].payload
+        pos = [pos_data[i].payload for i in range(3)]
+        return pos
+
+    def set_player_pos(self, pos):
+        pos_data = self.get_player()['Pos'].payload
+        for k in COORD_MAP:
+            if k in pos:
+                pos_data[COORD_MAP[k]].payload = pos[k]
+
+    def get_player_rot(self):
+        """Rotation is [yaw(-180:180), pitch(-90:90)]
+        yaw is 0 pointing in +z
+        yaw is 90 pointing in -x
+        yaw is 180 pointing in -z
+        yaw is -90 pointing in +x
+        pitch is -90 pointing up
+        pitch is 0 pointing horizontal
+        pitch is 90 pointing down
+        """
+        rot_data = self.get_player()['Rotation'].payload
+        rot = [rot_data[i].payload for i in range(2)]
+        return rot
+
+    def set_player_rot(self, rot):
+        rot_data = self.get_player()['Rotation'].payload
+        for k in ROT_MAP:
+            if k in rot:
+                rot_data[ROT_MAP[k]].payload = rot[k]
 
     def set_heightmap(self, blk_x, blk_y, blk_z):
         """Set the x, z value in the heightmap to y"""
@@ -1281,10 +1326,10 @@ class MCLevelAdapter(object):
 # override the SaveFile class with the adapter class
 if "mcedit" in sys.modules:
     SaveFile = MCLevelAdapter
-'''
+
 # some test functions
-savefile_to_load = "Test"
-mc_level = SaveFile(savefile_to_load)
+# savefile_to_load = "Test"
+# mc_level = SaveFile(savefile_to_load)
 # print the dat file
 # print(mc_level.dat)
 # change the spawn location
@@ -1294,14 +1339,14 @@ mc_level = SaveFile(savefile_to_load)
 ## mc_level.write_dat()
 
 
-x = 17
-y = 131
-z = 307
-
-print(f'chunk at {x}, {z}')
-print(mc_level.get_chunk_from_cord(x, z))
-print('heightmap ', mc_level.get_heightmap(x, z))
-print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be stone")
+# x = 17
+# y = 131
+# z = 307
+#
+# print(f'chunk at {x}, {z}')
+# print(mc_level.get_chunk_from_cord(x, z))
+# print('heightmap ', mc_level.get_heightmap(x, z))
+# print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be stone")
 
 # for i in mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload: print(i)
 # sects = mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload['Sections']
@@ -1312,10 +1357,18 @@ print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be st
 # for y in range(0,80):
 ##    ##y = mc_level.retrieve_heightmap(x, z)
 #    mc_level.set_block(x, y, z, {'B':20})
-## save the file
+
+
+# savefile_to_load = "Test"
+# mc_level = SaveFile(savefile_to_load)
+# # Set the player Y height position
+# mc_level.set_player_pos({'y': 91.1})
+# mc_level.set_player_rot({'pitch': 12.1, 'yaw': -110.3})
+#
+# # save the file
 # print("saving")
 # mc_level.write()
-'''
+
 
 # To Do
 # Support the "Add" array for extended block types
