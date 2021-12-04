@@ -764,6 +764,7 @@ class Region(object):
         return True
 
 
+# noinspection PyTypeChecker
 class SaveFile(object):
     """Interface object for a minecraft save file.
     Methods:
@@ -860,23 +861,6 @@ class SaveFile(object):
         chunk = self.get_chunk(chu_x, chu_z)
         return chunk
 
-    @staticmethod
-    def get_half_byte_data(data_list, idx):
-        """Take a list and return data at idx/2.
-        Assume the list is a list of integers derived from bytes.
-        The value you are looking for is in nibbles.
-        Go go go!"""
-        # the raw value has twice as much information as you want
-        raw_value = data_list[idx // 2]
-        # If idx is even, the data lies at the top (msb)
-        if idx % 2 == 1:
-            value = raw_value // 16
-        # If idx is odd, the data lies at the bottom (lsb)
-        else:
-            value = raw_value % 16
-        # that's it, value extracted, mission completed!
-        return value
-
     def block(self, blk_x, blk_y, blk_z, options=''):
         """Return relevant block data in a dict.
         The keys to the dict are the option key characters.
@@ -884,65 +868,24 @@ class SaveFile(object):
         because why do we need all this noise about block dictionaries?
         x, y, z : coordinates of target block.
         options : string containing option key characters (below) in any order.
-        'B' = Blocks, the integer identifier of the block type.
-        'D' = Data, the integer block data value.
-        'S' = SkyLight, the amount of light from the sky hitting the block.
-        'L' = BlockLight, the amount of light from other blocks.
+        It's all in flux
         """
-        # get the chunk
         chunk = self.get_chunk_from_cord(blk_x, blk_z)
         # if the chunk doesn't exist, return None
         if chunk is None:
             return None
+        # map the dict storing the relevant tag data
+        sections = chunk.tags[0].payload['sections'].payload
+        secidx = blk_y // 16
+        if secidx < len(sections):
+            section = sections[secidx]
+        else:
+            # no section means the block is air
+            return 0
+        # Grab the pallete, we need it later, and also now
+
         # get the intra-section index
         idx = self.block_to_idx(blk_x, blk_y, blk_z)
-        # map the dict storing the relevant tag data
-        data_dict = chunk.tags[0].payload["Level"].payload
-        # map the method to retrieve half-bytes
-        get_half_byte_data = self.get_half_byte_data
-        if len(options) > 0: output = {}
-        section = None
-        secidx = blk_y // 16
-        for sec in data_dict['Sections'].payload:
-            if sec.payload['Y'].payload == secidx:
-                section = sec.payload
-        # add the block type to the output
-        if ('B' in options) or (len(options) == 0):
-            # Get the appropriate list
-            # get the section index
-            if section is None:
-                value = 0
-            else:
-                data_list = section['Blocks'].payload
-                # extract the value
-                value = data_list[idx]
-            if len(options) == 0: return value
-            # add it to the output
-            output['B'] = value
-        # same as above, but with half bytes
-        if 'D' in options:
-            if section is None:
-                value = 0
-            else:
-                data_list = section['Data'].payload
-                value = get_half_byte_data(data_list, idx)
-            output.update({'D': value})
-        if 'S' in options:
-            if section is None:
-                value = 0
-            else:
-                data_list = section['SkyLight'].payload
-                value = get_half_byte_data(data_list, idx)
-            output.update({'S': value})
-        if 'L' in options:
-            if section is None:
-                value = 0
-            else:
-                data_list = section['BlockLight'].payload
-                value = get_half_byte_data(data_list, idx)
-            output.update({'L': value})
-
-        # spit it out
         return output
 
     def all_height_data(self, blk_x, blk_z):
@@ -1051,44 +994,31 @@ class SaveFile(object):
         return True
 
     @staticmethod
-    def set_half_byte_data(data_list, idx, value):
-        """Take a list and set the data at idx/2.
-        Assume the list is a list of integers derived from bytes.
-        The value you are looking for is in nibbles.
-        Go go go!"""
-        # the raw value has twice as much information as you want
-        raw_value = data_list[idx // 2]
-        # If idx is even, the data lies at the top (msb)
-        if idx % 2 == 1:
-            encoded_value = value << 4
-            other_value = raw_value % 16
-            new_value = encoded_value + other_value
-        # If idx is odd, the data lies at the bottom (lsb)
-        else:
-            other_value = (raw_value >> 4) << 4
-            new_value = value + other_value
-        # set the data to the new value
-        data_list[idx // 2] = new_value
-        # do we need to return the new data list?
-        # I think not!
-
-    @staticmethod
     def new_section(secidx):
         """generates a section that is all air"""
         # generate a new section
         newsec = NbtTag10(NbtNew())
         newsec.named = False
-        gen_air_names = {'Blocks': 4096, 'Data': 2048, 'BlockLight': 2048, 'SkyLight': 2048}
         newY_tag = NbtTag1(NbtNew())
         newY_tag.name = 'Y'
-        newY_tag.payload = secidx
+        newY_tag.payload = secidx - 4
         newsec.payload['Y'] = newY_tag
-        for new_name in gen_air_names:
-            new_tag = NbtTag7(NbtNew())
-            new_tag.name = new_name
-            new_tag.payload = [0] * gen_air_names[new_name]
-            new_tag.payload_length = gen_air_names[new_name]
-            newsec.payload[new_name] = new_tag
+        newBlocks_tag = NbtTag10(NbtNew())
+        newBlocks_tag.name = 'block_states'
+        newsec.payload['block_states'] = newBlocks_tag
+        palnm = 'palette'
+        paltg = NbtTag9(NbtNew())
+        newBlocks_tag.payload[palnm] = paltg
+        paltg.name = palnm
+        paltg.contents_type = 10
+        airnm = 'minecraft:air'
+        airtg = NbtTag10(NbtNew())
+        paltg.payload.append(airtg)
+        airnmtg = NbtTag8(NbtNew())
+        airnmtg.payload = airnm
+        airnmtg.name = "Name"
+        airtg.payload['Name'] = airnmtg
+        airtg.named = False
         return newsec
 
     def set_block(self, blk_x, blk_y, blk_z, settings):
@@ -1105,40 +1035,7 @@ class SaveFile(object):
         # get the intra-chunk index
         idx = self.block_to_idx(blk_x, blk_y, blk_z)
         # set the data
-        # map the dict storing the relevant tag data
-        data_dict = chunk.tags[0].payload["Level"].payload
-        # map the method to retrieve half-bytes
-        set_half_byte_data = self.set_half_byte_data
-        # make a default writer for non-block data.
-        # use set_half_byte_data(data_list, idx, value)
-        # make a writer for block data.
-        # just assign at the index on the appropriate list
-        # do an if-then to execute the changes
-        section = None
-        secidx = blk_y // 16
-        for sec in data_dict['Sections'].payload:
-            if sec.payload['Y'].payload == secidx:
-                section = sec.payload
-        if section is None:
-            sectionTag = self.new_section(secidx)
-            data_dict['Sections'].payload.append(sectionTag)
-            section = sectionTag.payload
-        # change the block type data
-        if 'B' in settings:
-            # Get the appropriate list
-            data_list = section['Blocks'].payload
-            # set the value
-            data_list[idx] = settings['B']
-        # same as above, but with half bytes
-        if 'D' in settings:
-            data_list = section['Data'].payload
-            set_half_byte_data(data_list, idx, settings['D'])
-        if 'S' in settings:
-            data_list = section['SkyLight'].payload
-            set_half_byte_data(data_list, idx, settings['S'])
-        if 'L' in settings:
-            data_list = section['BlockLight'].payload
-            set_half_byte_data(data_list, idx, settings['L'])
+
         # and we're done
         cur_max_y = self.get_heightmap(blk_x, blk_z)
         # this block is higher than the current limit, and isn't air
@@ -1283,8 +1180,8 @@ class SaveFile(object):
 
 
 # some test functions
-# savefile_to_load = "Test"
-# mc_level = SaveFile(savefile_to_load)
+savefile_to_load = "Test"
+mc_level = SaveFile(savefile_to_load)
 # print the dat file
 # print(mc_level.dat)
 # change the spawn location
@@ -1294,10 +1191,16 @@ class SaveFile(object):
 ## mc_level.write_dat()
 
 
-# x = 84
+x = 84
 # y = 319+65
 # y = 17
-# z = -35
+z = -35
+
+chunk = mc_level.get_chunk_from_cord(x, z)
+sections = chunk.tags[0].payload['sections'].payload
+for i in range(8):
+    newsec = mc_level.new_section(i)
+    sections[i] = newsec
 
 # print(f'chunk at {x}, {z}')
 # print(mc_level.get_chunk_from_cord(x, z))
@@ -1305,13 +1208,12 @@ class SaveFile(object):
 # print(f'setting to {y}')
 # mc_level.set_heightmap(x, y, z)
 # print('new heightmap ', mc_level.get_heightmap(x, z))
-# print(mc_level.surface_block(x, z))
+
+# sbd = mc_level.surface_block(x, z)
+# print(sbd)
+# y = sbd['y']
 # print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
-
-# for i in mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload: print(i)
-# sects = mc_level.get_chunk_from_cord(x, z).tags[0].payload["Level"].payload['Sections']
-
-# mc_level.set_block(x, y, z, {'B':17, 'D':1})
+# mc_level.set_block(x, y, z, {'B':1, 'D':1})
 # print('y is', y, 'and block value', mc_level.block(x, y, z))
 
 # for y in range(0,80):
@@ -1324,10 +1226,10 @@ class SaveFile(object):
 # # Set the player Y height position
 # mc_level.set_player_pos({'y': 91.1})
 # mc_level.set_player_rot({'pitch': 12.1, 'yaw': -110.3})
-#
-# # save the file
-# print("saving")
-# mc_level.write()
+
+# save the file
+print("saving")
+mc_level.write()
 
 
 # To Do
