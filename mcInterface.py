@@ -588,9 +588,9 @@ class Region(object):
         offsets = self.active_chunks_offsets
         lengths = self.active_chunks_lengths
         # retrieve the chunk to save
-        chunk = self.cached_chunks[num]
+        this_chunk = self.cached_chunks[num]
         # encode the chunk data in NBT byte format
-        encoded_chunk = chunk.encode_data()
+        encoded_chunk = this_chunk.encode_data()
         # compress the data
         compressed_chunk = zlib.compress(encoded_chunk)
         # calculate the length of the compressed data,
@@ -852,16 +852,38 @@ class SaveFile(object):
         chunk_idx = self.chunk_to_num(chk_x, chk_z)
         # retrieve the chunk from the region
         # if it isn't in the region, this "chunk" will be None
-        chunk = reg.get_chunk(chunk_idx)
-        return chunk
+        this_chunk = reg.get_chunk(chunk_idx)
+        return this_chunk
 
     def get_chunk_from_cord(self, blk_x, blk_z):
         """Return the chunk containing the block coordinates (x,z)."""
         chu_x, chu_z = self.block_to_chunk(blk_x, blk_z)
-        chunk = self.get_chunk(chu_x, chu_z)
-        return chunk
+        this_chunk = self.get_chunk(chu_x, chu_z)
+        return this_chunk
 
-    def block(self, blk_x, blk_y, blk_z, options=''):
+    def get_block_data(self, blk_x, blk_y, blk_z):
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        # if the chunk doesn't exist, return None
+        if this_chunk is None:
+            return None, None
+        # map the dict storing the relevant tag data
+        sections = this_chunk.tags[0].payload['sections'].payload
+        secidx = blk_y // 16
+        if secidx < len(sections):
+            section = sections[secidx].payload
+        else:
+            # no section means the block is air
+            return secidx, sections
+        # Grab the pallete, we need it later, and also now
+        block_states = section['block_states'].payload
+        palette = block_states['palette'].payload
+        # also, the data
+        if 'data' in block_states:
+            data = block_states['data'].payload
+        else: data = None
+        return palette, data
+
+    def block(self, blk_x, blk_y, blk_z, fetch_properties=False):
         """Return relevant block data in a dict.
         The keys to the dict are the option key characters.
         If no options are selected, return the block id as a raw int
@@ -870,35 +892,57 @@ class SaveFile(object):
         options : string containing option key characters (below) in any order.
         It's all in flux
         """
-        chunk = self.get_chunk_from_cord(blk_x, blk_z)
-        # if the chunk doesn't exist, return None
-        if chunk is None:
+        palette, data = self.get_block_data(blk_x, blk_y, blk_z)
+        if palette is None:
+            # No chunk!
             return None
-        # map the dict storing the relevant tag data
-        sections = chunk.tags[0].payload['sections'].payload
-        secidx = blk_y // 16
-        if secidx < len(sections):
-            section = sections[secidx]
-        else:
-            # no section means the block is air
-            return 0
-        # Grab the pallete, we need it later, and also now
-
+        if palette is 0:
+            # Unpopulated section
+            return {'B': 'minecraft:air'}
+        if len(palette) == 1:
+            # There's just one block type in this section, so we know what it has to be
+            palette_data = palette[0].payload
+            if not fetch_properties:
+                return palette_data['Name'].payload
+            block_data = {'B': palette_data['Name'].payload}
+            if 'Properties' in palette_data:
+                props = palette_data['Properties'].payload
+                for propert in props:
+                    block_data[propert] = props[propert].payload
+            return block_data
         # get the intra-section index
-        idx = self.block_to_idx(blk_x, blk_y, blk_z)
-        return output
+        idx_offset = self.block_to_idx(blk_x, blk_y, blk_z)
+        # 64 bit
+        bit_stride = max(4, len(f'{len(palette) - 1:b}'))
+        ids_per_int = 64 // bit_stride
+        int_idx = idx_offset // ids_per_int
+        bin_int = f'{data[int_idx]:064b}'
+        int_offset = idx_offset % ids_per_int
+        start = str((int_offset + 1) * -bit_stride)
+        if int_offset == 0: end = ''
+        else: end = str(int_offset * -bit_stride)
+        block_ID = int(eval(f'bin_int[{start}:{end}]'), base=2)
+        palette_data = palette[block_ID].payload
+        if not fetch_properties:
+            return palette_data['Name'].payload
+        block_data = {'B': palette_data['Name'].payload}
+        if 'Properties' in palette_data:
+            props = palette_data['Properties'].payload
+            for propert in props:
+                block_data[propert] = props[propert].payload
+        return block_data
 
     def all_height_data(self, blk_x, blk_z):
         # get the chunk
-        chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
         # if the chunk doesn't exist, return None
-        if chunk is None:
+        if this_chunk is None:
             return None
-        data_list = chunk.tags[0].payload["Heightmaps"].payload
+        data_list = this_chunk.tags[0].payload["Heightmaps"].payload
         return data_list
 
     @staticmethod
-    def heightmap_pli_st_ed(blk_x, blk_z):
+    def heightmap_pli_st_ed(blk_x, blk_z, stride=9):
         # find the location index, based on the coordinates
         # note the reversed coordinate ordering
         offset = (blk_x % 16) + (blk_z % 16) * 16
@@ -911,8 +955,8 @@ class SaveFile(object):
             start = ''
             end = '-54'
         else:
-            start = str((bin_idx + 1) * -9)
-            end = str(bin_idx * -9)
+            start = str((bin_idx + 1) * -stride)
+            end = str(bin_idx * -stride)
         return pld_idx, start, end
 
     valid_heightmaps = {"WORLD_SURFACE",
@@ -927,7 +971,7 @@ class SaveFile(object):
         # map the list storing the height map
         data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
         pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
-        bin_str = bin(data_list[pld_idx])[2:]
+        bin_str = f'{data_list[pld_idx]:064b}'
         # the data value stores the highest non-air block
         y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2)
         return y_ht
@@ -980,13 +1024,8 @@ class SaveFile(object):
         assert map_name in self.valid_heightmaps
         data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
         pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
-        old_bin = bin(data_list[pld_idx])[2:]
-        bin_ins = bin(blk_y)[2:]
-        bin_len = len(bin_ins)
-        if bin_len > 9: bin_ins = bin_ins[-9:]
-        if bin_len < 9:
-            pad = '0'*(9 - bin_len)
-            bin_ins = pad + bin_ins
+        old_bin = f'{data_list[pld_idx]:064b}'
+        bin_ins = f'{blk_y:09b}'
         if start == '': new_bin = bin_ins + eval(f'old_bin[{end}:]')
         elif end == '': new_bin = eval(f'old_bin[:{start}]') + bin_ins
         else: new_bin = eval(f'old_bin[:{start}]') + bin_ins + eval(f'old_bin[{end}:]')
@@ -994,8 +1033,18 @@ class SaveFile(object):
         return True
 
     @staticmethod
-    def new_section(secidx):
-        """generates a section that is all air"""
+    def new_palette_item(blocktype: str):
+        airtg = NbtTag10(NbtNew())
+        airnmtg = NbtTag8(NbtNew())
+        airnmtg.payload = blocktype
+        airnmtg.name = "Name"
+        airtg.payload['Name'] = airnmtg
+        airtg.named = False
+        return airtg
+
+    @staticmethod
+    def new_section(secidx, filltype='minecraft:air'):
+        """generates a section that is all air, or whatever the filltype is"""
         # generate a new section
         newsec = NbtTag10(NbtNew())
         newsec.named = False
@@ -1011,49 +1060,62 @@ class SaveFile(object):
         newBlocks_tag.payload[palnm] = paltg
         paltg.name = palnm
         paltg.contents_type = 10
-        airnm = 'minecraft:air'
-        airtg = NbtTag10(NbtNew())
-        paltg.payload.append(airtg)
-        airnmtg = NbtTag8(NbtNew())
-        airnmtg.payload = airnm
-        airnmtg.name = "Name"
-        airtg.payload['Name'] = airnmtg
-        airtg.named = False
+        fill_tag = SaveFile.new_palette_item(filltype)
+        paltg.payload.append(fill_tag)
         return newsec
 
-    def set_block(self, blk_x, blk_y, blk_z, settings):
+    def set_block(self, blk_x, blk_y, blk_z, sett):
         """Set the block data to settings.
         x, y, z : coordinates of target block
-        settings : dict of data to set, keys are the
-        same as in retrieve_block_data, values are the value to set.
+        settings : dict of data to set, keys are:
+        'B' for block type
+        all other values are the block property to set.
         """
-        # get the chunk
-        chunk = self.get_chunk_from_cord(blk_x, blk_z)
-        # if the chunk doesn't exist, return False
-        if chunk is None:
+        palette, data = self.get_block_data(blk_x, blk_y, blk_z)
+        if palette is None:
+            # No chunk!
             return None
-        # get the intra-chunk index
-        idx = self.block_to_idx(blk_x, blk_y, blk_z)
-        # set the data
+        if isinstance(palette, int):
+            # Unpopulated section, make a new one?
+            if sett["B"] == 'minecraft:air':
+                # it's already air! act like you did something
+                return True
+            sections = data
+            secidx = palette
+            while len(sections) <= secidx:
+                newsection = self.new_section(len(sections))
+                sections.append(newsection)
+            section = sections[secidx].payload
+            # making a new data section and possibly expanding it
+            # is going to be a real pain
+            data = self.newblockdata()
+        found = False
+        for i in range(len(palette)):
+            if sett['B'] == palette[i].payload["Name"].payload:
+                found = True
+                if ("Properties" not in palette[i].payload
+                    ) and ( len(sett) == 1 ):
+                    # we found it
+                    found = i
+                    break
+                props = palette[i].payload["Properties"].payload
+                for propert in sett:
+                    if propert == "B": continue
+                    if propert in props:
+                        this_propert = props[propert].payload
+                        if this_propert != sett[propert]:
+                            found = False
+                            break
+                if found:
+                    found = i
+                    break
+        if not isinstance(found, int):
+            self.add_block_data(palette, data)
+            found = len(palette) - 1
 
-        # and we're done
-        cur_max_y = self.get_heightmap(blk_x, blk_z)
-        # this block is higher than the current limit, and isn't air
-        cur_blk_type = self.block(blk_x, blk_y, blk_z)
-        if "H" in settings:
-            if (blk_y > cur_max_y) and (cur_blk_type != 0):
-                self.set_heightmap(blk_x, blk_y, blk_z)
-                # print(f"updated heightmap at {blk_x}, {blk_z} from {cur_max_y} to {blk_y}")
-            elif (blk_y == cur_max_y) and (cur_blk_type == 0):
-                check_y = blk_y
-                while check_y > 0:
-                    check_y -= 1
-                    check_type = self.block(blk_x, check_y, blk_z)
-                    if check_type != 0: break
-                self.set_heightmap(blk_x, check_y, blk_z)
         if RELIGHT:
             # Dirty the lighting, because it's easier to have Minecraft do it
-            chunk.tags[0].payload["Level"].payload['LightPopulated'].payload = 0
+            this_chunk.tags[0].payload["Status"].payload = 'light'
         return True
 
     def surface_block(self, blk_x, blk_z, options='B'):
@@ -1071,10 +1133,10 @@ class SaveFile(object):
         if y_ht is None:
             return None
         # if you got a good value, subtract one to get the surface block
-        # y_ht += -1
-        # if y_ht == -1: y_ht = 0
+        y_ht += -1
+        if y_ht == -1: y_ht = 0
         # get the block data
-        output = self.block(blk_x, y_ht, blk_z, options)
+        output = self.block(blk_x, y_ht, blk_z)
         # add the y value, so we have it later if we want.
         output.update({'y': y_ht})
         # spit it out
@@ -1191,16 +1253,17 @@ mc_level = SaveFile(savefile_to_load)
 ## mc_level.write_dat()
 
 
-x = 84
+x = 116
 # y = 319+65
 # y = 17
-z = -35
+z = -85
 
-chunk = mc_level.get_chunk_from_cord(x, z)
-sections = chunk.tags[0].payload['sections'].payload
-for i in range(8):
-    newsec = mc_level.new_section(i)
-    sections[i] = newsec
+# chunk = mc_level.get_chunk_from_cord(x, z)
+# sec = chunk.tags[0].payload['sections'].payload[8].payload
+# sections = chunk.tags[0].payload['sections'].payload
+# for i in range(9):
+#     newsec = mc_level.new_section(i)
+#     sections[i] = newsec
 
 # print(f'chunk at {x}, {z}')
 # print(mc_level.get_chunk_from_cord(x, z))
@@ -1209,8 +1272,8 @@ for i in range(8):
 # mc_level.set_heightmap(x, y, z)
 # print('new heightmap ', mc_level.get_heightmap(x, z))
 
-# sbd = mc_level.surface_block(x, z)
-# print(sbd)
+sbd = mc_level.surface_block(x, z)
+print(sbd)
 # y = sbd['y']
 # print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
 # mc_level.set_block(x, y, z, {'B':1, 'D':1})
@@ -1229,7 +1292,7 @@ for i in range(8):
 
 # save the file
 print("saving")
-mc_level.write()
+# mc_level.write()
 
 
 # To Do
