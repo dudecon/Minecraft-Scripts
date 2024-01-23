@@ -896,7 +896,7 @@ class SaveFile(object):
         if palette is None:
             # No chunk!
             return None
-        if palette is 0:
+        if palette == 0:
             # Unpopulated section
             return {'B': 'minecraft:air'}
         if len(palette) == 1:
@@ -1242,7 +1242,7 @@ class SaveFile(object):
 
 
 # some test functions
-savefile_to_load = "Test"
+savefile_to_load = "TestB"
 mc_level = SaveFile(savefile_to_load)
 # print the dat file
 # print(mc_level.dat)
@@ -1253,12 +1253,12 @@ mc_level = SaveFile(savefile_to_load)
 ## mc_level.write_dat()
 
 
-x = 116
+x = 51
 # y = 319+65
-# y = 17
-z = -85
+# y = 70
+z = -39
 
-# chunk = mc_level.get_chunk_from_cord(x, z)
+chunk = mc_level.get_chunk_from_cord(x, z)
 # sec = chunk.tags[0].payload['sections'].payload[8].payload
 # sections = chunk.tags[0].payload['sections'].payload
 # for i in range(9):
@@ -1272,8 +1272,8 @@ z = -85
 # mc_level.set_heightmap(x, y, z)
 # print('new heightmap ', mc_level.get_heightmap(x, z))
 
-sbd = mc_level.surface_block(x, z)
-print(sbd)
+#sbd = mc_level.surface_block(x, z)
+#print(sbd)
 # y = sbd['y']
 # print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
 # mc_level.set_block(x, y, z, {'B':1, 'D':1})
@@ -1292,8 +1292,9 @@ print(sbd)
 
 # save the file
 print("saving")
-# mc_level.write()
+mc_level.write()
 
 
 # To Do
 # Support the "Add" array for extended block types
+# investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
