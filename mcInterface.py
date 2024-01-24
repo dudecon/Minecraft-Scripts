@@ -1150,6 +1150,12 @@ class SaveFile(object):
             self.add_block_data(palette, sett)
             found = len(palette) - 1
             # increment the block data integer size?
+            # dirty and/or cache the block data
+            # add a check on save to re-compress once all the
+            # changes have been finalized
+            #
+            # cache the index for the block and return it
+            # for multiple assignment optimization
 
         # actually set the block value
         # when do we unpack and repack the values in the data?
@@ -1323,9 +1329,9 @@ sec = chunk.tags[0].payload['sections'].payload[8].payload
 # mc_level.set_block(x, y, z, {'B':1, 'D':1})
 # print('y is', y, 'and block value', mc_level.block(x, y, z))
 
-for y in range(74,80):
+for y in range(74,82):
 #    ##y = mc_level.retrieve_heightmap(x, z)
-   mc_level.set_block(x, y, z, {'B':'minecraft:diamond_block'})
+   mc_level.set_block(x, y, z, {'B':'minecraft:gold_block'})
 
 
 # # Set the player Y height position and rotation
