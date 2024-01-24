@@ -868,7 +868,8 @@ class SaveFile(object):
             return None, None
         # map the dict storing the relevant tag data
         sections = this_chunk.tags[0].payload['sections'].payload
-        secidx = blk_y // 16
+        # +64 or +63? what is the proper offset?
+        secidx = (blk_y+64) // 16
         if secidx < len(sections):
             section = sections[secidx].payload
         else:
@@ -1019,6 +1020,24 @@ class SaveFile(object):
             if k in rot:
                 rot_data[ROT_MAP[k]].payload = rot[k]
 
+    def get_blockentity_from_pos(self, coords):
+        this_chunk = self.get_chunk_from_cord(coords[0], coords[2])
+        all_entities = this_chunk.tags[0].payload["block_entities"].payload
+        entity_payload = None
+        for ent_tag in all_entities:
+            ent = ent_tag.payload
+            this_coord = (ent['x'].payload,ent['y'].payload,ent['z'].payload)
+            if this_coord == coords:
+                entity_payload = ent
+                break
+        return entity_payload
+
+    def get_chest_items_from_pos(self,coords):
+        chest = self.get_blockentity_from_pos(coords)
+        if chest != None:
+            return chest['Items'].payload
+        return None
+
     def set_heightmap(self, blk_x, blk_y, blk_z, map_name='WORLD_SURFACE'):
         """Set the x, z value in the heightmap to y"""
         assert map_name in self.valid_heightmaps
@@ -1034,13 +1053,30 @@ class SaveFile(object):
 
     @staticmethod
     def new_palette_item(blocktype: str):
-        airtg = NbtTag10(NbtNew())
-        airnmtg = NbtTag8(NbtNew())
-        airnmtg.payload = blocktype
-        airnmtg.name = "Name"
-        airtg.payload['Name'] = airnmtg
-        airtg.named = False
-        return airtg
+        plttg = NbtTag10(NbtNew())
+        nmtg = NbtTag8(NbtNew())
+        nmtg.payload = blocktype
+        nmtg.name = "Name"
+        plttg.payload['Name'] = nmtg
+        plttg.named = False
+        return plttg
+
+    def add_block_data(self, palette : list, data):
+        item = self.new_palette_item(data['B'])
+        if len(data) > 1:
+            proptg = NbtTag10(NbtNew())
+            proptg.named = True
+            proptg.name = 'Properties'
+            item.payload['Properties'] = proptg
+            props = data.copy()
+            del(props['B'])
+            for propert in props:
+                subproptg = NbtTag8(NbtNew())
+                subproptg.name = propert
+                subproptg.named = True
+                subproptg.payload = props[propert]
+                proptg.payload[propert] = subproptg
+        palette.append(item)
 
     @staticmethod
     def new_section(secidx, filltype='minecraft:air'):
@@ -1090,6 +1126,7 @@ class SaveFile(object):
             # is going to be a real pain
             data = self.newblockdata()
         found = False
+        # search the palette for the item we're looking for
         for i in range(len(palette)):
             if sett['B'] == palette[i].payload["Name"].payload:
                 found = True
@@ -1110,12 +1147,18 @@ class SaveFile(object):
                     found = i
                     break
         if not isinstance(found, int):
-            self.add_block_data(palette, data)
+            self.add_block_data(palette, sett)
             found = len(palette) - 1
+            # increment the block data integer size?
+
+        # actually set the block value
+        # when do we unpack and repack the values in the data?
+        # on load and save? or at some other point?
 
         if RELIGHT:
             # Dirty the lighting, because it's easier to have Minecraft do it
-            this_chunk.tags[0].payload["Status"].payload = 'light'
+            this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+            this_chunk.tags[0].payload["isLightOn"].payload = 0
         return True
 
     def surface_block(self, blk_x, blk_z, options='B'):
@@ -1254,16 +1297,17 @@ mc_level = SaveFile(savefile_to_load)
 
 
 x = 51
-# y = 319+65
-# y = 70
-z = -39
+y = 70
+z = -36
 
 chunk = mc_level.get_chunk_from_cord(x, z)
-# sec = chunk.tags[0].payload['sections'].payload[8].payload
+sec = chunk.tags[0].payload['sections'].payload[8].payload
 # sections = chunk.tags[0].payload['sections'].payload
 # for i in range(9):
 #     newsec = mc_level.new_section(i)
 #     sections[i] = newsec
+
+# chest = mc_level.get_chest_items_from_pos((51,71,-39))
 
 # print(f'chunk at {x}, {z}')
 # print(mc_level.get_chunk_from_cord(x, z))
@@ -1279,14 +1323,12 @@ chunk = mc_level.get_chunk_from_cord(x, z)
 # mc_level.set_block(x, y, z, {'B':1, 'D':1})
 # print('y is', y, 'and block value', mc_level.block(x, y, z))
 
-# for y in range(0,80):
-##    ##y = mc_level.retrieve_heightmap(x, z)
-#    mc_level.set_block(x, y, z, {'B':20})
+for y in range(74,80):
+#    ##y = mc_level.retrieve_heightmap(x, z)
+   mc_level.set_block(x, y, z, {'B':'minecraft:diamond_block'})
 
 
-# savefile_to_load = "Test"
-# mc_level = SaveFile(savefile_to_load)
-# # Set the player Y height position
+# # Set the player Y height position and rotation
 # mc_level.set_player_pos({'y': 91.1})
 # mc_level.set_player_rot({'pitch': 12.1, 'yaw': -110.3})
 
