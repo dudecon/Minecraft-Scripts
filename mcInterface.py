@@ -455,8 +455,22 @@ class NbtTag12(NbtTag7):
         # check if this is a dirty block data array
         if hasattr(self, "unpacked"):
             # re-pack the integers
-            idxbytesize = len(bin(len(self.palette)-1))-2
-            # do a bunch of packing stuff
+            bit_length = max(len(bin(len(self.palette)-1))-2,4)
+            stride = (64 - (64 % bit_length))
+            ids_per_int = 64 // bit_length
+
+            # Collect binary representations of indices
+            binary_chunks = [format(index, f'0{bit_length}b') for index in self.unpacked]
+
+            # Reverse the order within each 64-bit chunk and concatenate
+            binary_string = ''.join(
+                ''.join(reversed(binary_chunks[i:i + ids_per_int]))
+                for i in range(0, len(binary_chunks), ids_per_int)
+            )
+
+            # Convert to 64-bit integers
+            self.payload = [int(binary_string[i:i + stride], 2) for i in range(0, len(binary_string), stride)]
+
         return NbtTag7.encodePayload(self)
 
 
@@ -801,7 +815,7 @@ class SaveFile(object):
 
     def block_to_idx(self, blk_x, blk_y, blk_z):
         """Convert absolute block cords to an intra-section index."""
-        if blk_y > self.map_height or blk_y < 0:
+        if blk_y > self.map_height or blk_y < -64:
             raise IndexError
         idx = (blk_y % 16) * 16 * 16 + (blk_z % 16) * 16 + (blk_x % 16)
         return idx
@@ -888,9 +902,9 @@ class SaveFile(object):
         palette = block_states['palette'].payload
         # also, the data
         if 'data' in block_states:
-            data = block_states['data'].payload
+            data = block_states['data']
         else: data = None
-        return palette, data
+        return palette, data, block_states
 
     def block(self, blk_x, blk_y, blk_z, fetch_properties=False):
         """Return relevant block data in a dict.
@@ -901,7 +915,7 @@ class SaveFile(object):
         options : string containing option key characters (below) in any order.
         It's all in flux
         """
-        palette, data = self.get_block_data(blk_x, blk_y, blk_z)
+        palette, data, block_states = self.get_block_data(blk_x, blk_y, blk_z)
         if palette is None:
             # No chunk!
             return None
@@ -919,8 +933,14 @@ class SaveFile(object):
                 for propert in props:
                     block_data[propert] = props[propert].payload
             return block_data
-        # get the intra-section index
-        idx_offset = self.block_to_idx(blk_x, blk_y, blk_z)
+        # just do something like this?
+        blkidx = self.block_to_idx(blk_x, blk_y, blk_z)
+        if not hasattr(data, "unpacked"):
+            self.unpack_block_states(data, palette)
+        foundpltid = data.unpacked[blkidx]
+        # don't need any of this?
+        # keep for readability in the future
+        '''idx_offset = self.block_to_idx(blk_x, blk_y, blk_z)
         # 64 bit
         bit_stride = max(4, len(f'{len(palette) - 1:b}'))
         ids_per_int = 64 // bit_stride
@@ -930,8 +950,8 @@ class SaveFile(object):
         start = str((int_offset + 1) * -bit_stride)
         if int_offset == 0: end = ''
         else: end = str(int_offset * -bit_stride)
-        block_ID = int(eval(f'bin_int[{start}:{end}]'), base=2)
-        palette_data = palette[block_ID].payload
+        block_ID = int(eval(f'bin_int[{start}:{end}]'), base=2)'''
+        palette_data = palette[foundpltid].payload
         if not fetch_properties:
             return palette_data['Name'].payload
         block_data = {'B': palette_data['Name'].payload}
@@ -1042,7 +1062,7 @@ class SaveFile(object):
 
     def get_chest_items_from_pos(self,coords):
         chest = self.get_blockentity_from_pos(coords)
-        if chest != None:
+        if chest is not None:
             return chest['Items'].payload
         return None
 
@@ -1108,10 +1128,27 @@ class SaveFile(object):
         paltg.payload.append(fill_tag)
         return newsec
 
-    def unpack_block_states(self, data, palette):
+    @staticmethod
+    def new_block_data():
+        """generates a block data object that is all zeroes"""
+        data = NbtTag12(NbtNew())
+        data.named = True
+        data.name = 'data'
+        data.payload = [0,]*256
+        return data
+
+    @staticmethod
+    def unpack_block_states(data, palette):
         data.palette = palette
         # actually unpack the data
-        data.unpacked = "big old list of integers"
+        bit_length = max(len(bin(len(palette) - 1)) - 2, 4)
+        stride = 64 - (64 % bit_length)
+        binary_chunks = [
+            [(format(number, f'0{stride}b'))[i:i + bit_length] for i in range(0, stride, bit_length)][::-1]
+            for number in data.payload
+        ]
+        binary_string = ''.join(''.join(c for c in subchunk) for subchunk in binary_chunks)
+        data.unpacked = [int(binary_string[i:i + bit_length], 2) for i in range(0, bit_length * 4096, bit_length)]
 
     def set_block(self, blk_x, blk_y, blk_z, sett):
         """Set the block data to settings.
@@ -1120,7 +1157,7 @@ class SaveFile(object):
         'B' for block type
         all other values are the block property to set.
         """
-        palette, data = self.get_block_data(blk_x, blk_y, blk_z)
+        palette, data, block_states = self.get_block_data(blk_x, blk_y, blk_z)
         if palette is None:
             # No chunk!
             return None
@@ -1159,16 +1196,19 @@ class SaveFile(object):
                 if found:
                     found = i
                     break
-        if not isinstance(found, int):
+        if not isinstance(found, int) or isinstance(found, bool):
             self.add_block_data(palette, sett)
             found = len(palette) - 1
+            if data is None:
+                data = self.new_block_data()
+                block_states['data'] = data
 
             # cache the index for the block and return it?
             # for multiple assignment optimization?
 
-        blkidx = block_to_idx(blk_x, blk_y, blk_z)
+        blkidx = self.block_to_idx(blk_x, blk_y, blk_z)
         if not hasattr(data, "unpacked"):
-            unpack_block_states(data, palette)
+            self.unpack_block_states(data, palette)
         # actually set the block value
         data.unpacked[blkidx] = found
 
@@ -1301,59 +1341,72 @@ class SaveFile(object):
         return True
 
 
-# some test functions
-savefile_to_load = "TestB"
-mc_level = SaveFile(savefile_to_load)
-# print the dat file
-# print(mc_level.dat)
-# change the spawn location
-## mc_level.dat.tags[0].payload['Data'].payload['SpawnX'].payload = -250
-## mc_level.dat.tags[0].payload['Data'].payload['SpawnY'].payload = 70
-## mc_level.dat.tags[0].payload['Data'].payload['SpawnZ'].payload = 142
-## mc_level.write_dat()
+if __name__ == '__main__':
+    # some test functions
+    savefile_to_load = "TestB"
+    mc_level = SaveFile(savefile_to_load)
+    # print the dat file
+    # print(mc_level.dat)
+    # change the spawn location
+    ## mc_level.dat.tags[0].payload['Data'].payload['SpawnX'].payload = -250
+    ## mc_level.dat.tags[0].payload['Data'].payload['SpawnY'].payload = 70
+    ## mc_level.dat.tags[0].payload['Data'].payload['SpawnZ'].payload = 142
+    ## mc_level.write_dat()
 
+    x = 60
+    y = 70
+    z = -39
 
-x = 51
-y = 70
-z = -36
+    chunk = mc_level.get_chunk_from_cord(x, z)
+    sec = chunk.tags[0].payload['sections'].payload[9].payload
+    # sections = chunk.tags[0].payload['sections'].payload
+    # for i in range(9):
+    #     newsec = mc_level.new_section(i)
+    #     sections[i] = newsec
 
-chunk = mc_level.get_chunk_from_cord(x, z)
-sec = chunk.tags[0].payload['sections'].payload[8].payload
-# sections = chunk.tags[0].payload['sections'].payload
-# for i in range(9):
-#     newsec = mc_level.new_section(i)
-#     sections[i] = newsec
+    # chest = mc_level.get_chest_items_from_pos((51,71,-39))
 
-# chest = mc_level.get_chest_items_from_pos((51,71,-39))
+    # print(f'chunk at {x}, {z}')
+    # print(mc_level.get_chunk_from_cord(x, z))
+    # print('heightmap ', mc_level.get_heightmap(x, z))
+    # print(f'setting to {y}')
+    # mc_level.set_heightmap(x, y, z)
+    # print('new heightmap ', mc_level.get_heightmap(x, z))
 
-# print(f'chunk at {x}, {z}')
-# print(mc_level.get_chunk_from_cord(x, z))
-# print('heightmap ', mc_level.get_heightmap(x, z))
-# print(f'setting to {y}')
-# mc_level.set_heightmap(x, y, z)
-# print('new heightmap ', mc_level.get_heightmap(x, z))
+    # sbd = mc_level.surface_block(x, z)
+    # print(sbd)
+    # y = sbd['y']
+    # print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
+    # mc_level.set_block(x, y, z, {'B':1, 'D':1})
+    # print('y is', y, 'and block value', mc_level.block(x, y, z))
 
-#sbd = mc_level.surface_block(x, z)
-#print(sbd)
-# y = sbd['y']
-# print(f'y val {y} and block value', mc_level.block(x, y, z), "which should be leaves")
-# mc_level.set_block(x, y, z, {'B':1, 'D':1})
-# print('y is', y, 'and block value', mc_level.block(x, y, z))
+    # 51 ends up at x=60
+    # 61 ends up at x=50
 
-for y in range(74,82):
-#    ##y = mc_level.retrieve_heightmap(x, z)
-   mc_level.set_block(x, y, z, {'B':'minecraft:gold_block'})
+    # y values seem to be always correct
 
+    x = 60
+    z = -39
+    for y in range(62, 80):
+        #    ##y = mc_level.retrieve_heightmap(x, z)
+        mc_level.set_block(x, y, z, {'B': 'minecraft:air'})
 
-# # Set the player Y height position and rotation
-# mc_level.set_player_pos({'y': 91.1})
-# mc_level.set_player_rot({'pitch': 12.1, 'yaw': -110.3})
+    '''for y in range(80, 99):
+        #    ##y = mc_level.retrieve_heightmap(x, z)
+        mc_level.set_block(x, y, z, {'B': 'minecraft:diamond_block'})
 
-# save the file
-print("saving")
-mc_level.write()
+    print(mc_level.block(52, 70, -39))'''
+    # should be spruce wood
+
+    # # Set the player Y height position and rotation
+    # mc_level.set_player_pos({'y': 91.1})
+    # mc_level.set_player_rot({'pitch': 12.1, 'yaw': -110.3})
+
+    # save the file
+    print("saving")
+    mc_level.write()
 
 
 # To Do
-# Support the "Add" array for extended block types
 # investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
+# actually not a problem, but maybe could remove the source data pointer from each object?
