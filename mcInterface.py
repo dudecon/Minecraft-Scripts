@@ -451,6 +451,14 @@ class NbtTag12(NbtTag7):
     Element_Byte_Size = 8
     payload_type = '>q'
 
+    def encodePayload(self):
+        # check if this is a dirty block data array
+        if hasattr(self, "unpacked"):
+            # re-pack the integers
+            idxbytesize = len(bin(len(self.palette)-1))-2
+            # do a bunch of packing stuff
+        return NbtTag7.encodePayload(self)
+
 
 # switch list for selecting the correct tag
 # keyed by integer
@@ -1100,6 +1108,11 @@ class SaveFile(object):
         paltg.payload.append(fill_tag)
         return newsec
 
+    def unpack_block_states(self, data, palette):
+        data.palette = palette
+        # actually unpack the data
+        data.unpacked = "big old list of integers"
+
     def set_block(self, blk_x, blk_y, blk_z, sett):
         """Set the block data to settings.
         x, y, z : coordinates of target block
@@ -1149,17 +1162,15 @@ class SaveFile(object):
         if not isinstance(found, int):
             self.add_block_data(palette, sett)
             found = len(palette) - 1
-            # increment the block data integer size?
-            # dirty and/or cache the block data
-            # add a check on save to re-compress once all the
-            # changes have been finalized
-            #
-            # cache the index for the block and return it
-            # for multiple assignment optimization
 
+            # cache the index for the block and return it?
+            # for multiple assignment optimization?
+
+        blkidx = block_to_idx(blk_x, blk_y, blk_z)
+        if not hasattr(data, "unpacked"):
+            unpack_block_states(data, palette)
         # actually set the block value
-        # when do we unpack and repack the values in the data?
-        # on load and save? or at some other point?
+        data.unpacked[blkidx] = found
 
         if RELIGHT:
             # Dirty the lighting, because it's easier to have Minecraft do it
