@@ -797,9 +797,9 @@ class SaveFile(object):
     """
 
     # the top height of the map
-    # note that the user-facing y height is this -65 since the height now goes down to -64
-    # all the map data and scripts use y starting at 0
-    map_height: int = 384
+    # note that the y height goes down to -64
+    map_height: int = 320
+    map_bottom: int = -64
 
     def __init__(self, foldername):
         """Initialize and read in basic file data."""
@@ -815,7 +815,7 @@ class SaveFile(object):
 
     def block_to_idx(self, blk_x, blk_y, blk_z):
         """Convert absolute block cords to an intra-section index."""
-        if blk_y > self.map_height or blk_y < -64:
+        if blk_y > self.map_height or blk_y < self.map_bottom:
             raise IndexError
         idx = (blk_y % 16) * 16 * 16 + (blk_z % 16) * 16 + (blk_x % 16)
         return idx
@@ -843,8 +843,8 @@ class SaveFile(object):
     @staticmethod
     def block_to_chunk(blk_x, blk_z):
         """Convert block to chunk coordinates, return tuple."""
-        chunk_x = blk_x // 16
-        chunk_z = blk_z // 16
+        chunk_x = int(blk_x // 16)
+        chunk_z = int(blk_z // 16)
         return chunk_x, chunk_z
 
     @staticmethod
@@ -925,9 +925,9 @@ class SaveFile(object):
         if len(palette) == 1:
             # There's just one block type in this section, so we know what it has to be
             palette_data = palette[0].payload
-            if not fetch_properties:
-                return palette_data['Name'].payload
             block_data = {'B': palette_data['Name'].payload}
+            if not fetch_properties:
+                return block_data
             if 'Properties' in palette_data:
                 props = palette_data['Properties'].payload
                 for propert in props:
@@ -952,9 +952,9 @@ class SaveFile(object):
         else: end = str(int_offset * -bit_stride)
         block_ID = int(eval(f'bin_int[{start}:{end}]'), base=2)'''
         palette_data = palette[foundpltid].payload
-        if not fetch_properties:
-            return palette_data['Name'].payload
         block_data = {'B': palette_data['Name'].payload}
+        if not fetch_properties:
+            return block_data
         if 'Properties' in palette_data:
             props = palette_data['Properties'].payload
             for propert in props:
@@ -1227,14 +1227,15 @@ class SaveFile(object):
         """
         # get the y coordinate of the heightmap not including leaves
         # this should be the block at the surface of the map
-        y_ht = self.get_heightmap(blk_x, blk_z, 'MOTION_BLOCKING_NO_LEAVES')
+        blk_x = int(blk_x)
+        blk_z = int(blk_z)
+        y_ht = self.get_heightmap(blk_x, blk_z, 'MOTION_BLOCKING_NO_LEAVES') - 64
         # if the chunk containing the x, z cords has not been generated
         # then return None
         if y_ht is None:
             return None
         # if you got a good value, subtract one to get the surface block
-        y_ht += -1
-        if y_ht == -1: y_ht = 0
+        if y_ht != self.map_bottom: y_ht -= 1
         # get the block data
         output = self.block(blk_x, y_ht, blk_z)
         # add the y value, so we have it later if we want.
@@ -1353,12 +1354,16 @@ if __name__ == '__main__':
     ## mc_level.dat.tags[0].payload['Data'].payload['SpawnZ'].payload = 142
     ## mc_level.write_dat()
 
-    x = 60
+    x = 80
     y = 70
     z = -39
 
+    secidx = (y + 64) // 16
+
     chunk = mc_level.get_chunk_from_cord(x, z)
-    sec = chunk.tags[0].payload['sections'].payload[9].payload
+    sec = chunk.tags[0].payload['sections'].payload[secidx].payload
+    pal = sec['block_states'].payload['palette'].payload
+    pass
     # sections = chunk.tags[0].payload['sections'].payload
     # for i in range(9):
     #     newsec = mc_level.new_section(i)
@@ -1385,11 +1390,11 @@ if __name__ == '__main__':
 
     # y values seem to be always correct
 
-    x = 60
+    '''x = 60
     z = -39
     for y in range(62, 80):
         #    ##y = mc_level.retrieve_heightmap(x, z)
-        mc_level.set_block(x, y, z, {'B': 'minecraft:air'})
+        mc_level.set_block(x, y, z, {'B': 'minecraft:air'})'''
 
     '''for y in range(80, 99):
         #    ##y = mc_level.retrieve_heightmap(x, z)

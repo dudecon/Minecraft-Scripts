@@ -1,4 +1,4 @@
-# Version 9
+# Version 10
 """This takes a base MineCraft level and adds or edits trees.
 
 Written by Paul Spooner, with God's help.
@@ -8,15 +8,12 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html"""
 
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
-LOADNAME = "Test"
+LOADNAME = "TestB"
 
 # How many trees do you want to add?
 TREECOUNT = 7
 
-# Where do you want the new trees?
-# X, and Z are the map coordinates
-X = 93
-Z = -80
+# The trees will be added around the player's location, so you can just stand anywhere.
 
 # How large an area do you want the trees to be in?
 # for example, RADIUS = 10 will make place trees randomly in
@@ -54,7 +51,7 @@ CENTERHEIGHT = 35
 
 # EDGEHEIGHT is the height at the trees at the edge of the area.
 # ie, when radius = RADIUS
-EDGEHEIGHT = 15
+EDGEHEIGHT = 19
 
 # What should the variation in HEIGHT be?
 # actual value +- variation
@@ -133,7 +130,7 @@ BRANCHDENSITY = 1.0
 # "hanging" will hang downward in air.  Good for "floating" type maps
 #    (I really miss "floating" terrain as a default option)
 # "no" roots will not be generated
-ROOTS = "hanging"
+ROOTS = "no"
 
 # Do you want root buttresses?
 # These make the trunk not-round at the base, seen in tropical or old trees.
@@ -155,7 +152,7 @@ FOLIAGE = True
 # 1.0 is normal
 # 0.3 will make very sparse spotty trees, half as many foliage clusters
 # 2.0 will make dense foliage, better for the "rainforests" SHAPE
-FOLIAGEDENSITY = 2.0
+FOLIAGEDENSITY = 1.0
 
 # Limit the tree height to the top of the map?
 # True the trees will not grow any higher than the top of the map
@@ -185,40 +182,19 @@ ONLYINFORESTS = False
 #####################
 
 # What kind of material should the "wood" be made of?
-# defaults to 17
-WOODMAT = 17
-
-# What data value should the wood blocks have?
-# Some blocks, like wood, leaves, and cloth change
-# apperance with different data values
-# defaults to 0
-WOODDATA = 3
+WOODMAT = {"B":'minecraft:birch_log', "axis":'y'}
 
 # What kind of material should the "leaves" be made of?
 # defaults to 18
-LEAFMAT = 18
-
-# What data value should the leaf blocks have?
-# Some blocks, like wood, leaves, and cloth change
-# apperance with different data values
-# defaults to 0
-LEAFDATA = 7
+LEAFMAT = {"B":'minecraft:birch_leaves', 'persistent': 'true'}
 
 # What kind of material should the "lights" be made of?
 # defaults to 89 (glowstone)
-LIGHTMAT = 89
-
-# What data value should the light blocks have?
-# defaults to 0
-LIGHTDATA = 0
+LIGHTMAT = {"B":'minecraft:torch'}
 
 # What kind of material would you like the "hollow" trunk filled with?
 # defaults to 0 (air)
-TRUNKFILLMAT = 0
-
-# What data value would you like the "hollow" trunk filled with?
-# defaults to 0
-TRUNKFILLDATA = 0
+TRUNKFILLMAT = {"B":'minecraft:air'}
 
 # What kind of blocks should the trees be planted on?
 # Use the Minecraft index.
@@ -332,10 +308,10 @@ if LIGHTTREE not in [0, 1, 2, 4]:
     if VERBOSE: print("LIGHTTREE not set correctly, using 0 for no torches")
     LIGHTTREE = 0
 # assemble the material dictionaries
-WOODINFO = {'B': WOODMAT, 'D': WOODDATA}
-LEAFINFO = {'B': LEAFMAT, 'D': LEAFDATA}
-LIGHTINFO = {'B': LIGHTMAT, 'D': LIGHTDATA}
-TRUNKFILLINFO = {'B': TRUNKFILLMAT, 'D': TRUNKFILLDATA}
+WOODINFO = WOODMAT.copy()
+LEAFINFO = LEAFMAT.copy()
+LIGHTINFO = LIGHTMAT.copy()
+TRUNKFILLINFO = TRUNKFILLMAT.copy()
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
 # The following also includes a useful coordinate to index convertor and several
@@ -549,7 +525,7 @@ def crossection(center, radius, diraxis, matidx, mcmap):
             coord[diraxis] = pri
             coord[secidx1] = sec1
             coord[secidx2] = sec2
-            assign_value(coord[0], coord[1], coord[2], matidx, mcmap)
+            assign_value(int(coord[0]), int(coord[1]), int(coord[2]), matidx, mcmap)
 
 
 def taperedcylinder(start, end, startsize, endsize, mcmap: mcInterface.SaveFile, blockdata):
@@ -985,7 +961,7 @@ class ProceduralTree(Tree):
                     # this coordinate to the list
                     if mat_dist < offlength + 2:
                         continue
-                foliage_coords += [[x, y, z]]
+                foliage_coords += [[int(x), int(y), int(z)]]
 
         self.foliage_cords = foliage_coords
 
@@ -1086,7 +1062,7 @@ class MangroveTree(RoundTree):
         return val
 
 
-def planttrees(mcmap: mcInterface.SaveFile, treelist):
+def planttrees(mcmap: mcInterface.SaveFile, treelist: list):
     """Take mcmap and add trees to random locations on the surface to treelist.
     """
     assert isinstance(mcmap, mcInterface.SaveFile)
@@ -1109,6 +1085,8 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist):
     else:
         shape_choices = [SHAPE]
 
+    X, Y, Z = mcmap.get_player_pos()
+
     if VERBOSEINDIVIDUALS: print('Tree Locations: x, y, z, tree height')
     tries = 0
     max_tries = MAXTRIES
@@ -1116,7 +1094,7 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist):
         if tries > max_tries:
             if VERBOSE:
                 print("Stopping search for tree locations after {0} tries".format(tries))
-                print("If you don't have enough trees, check X, Y, RADIUS, and PLANTON")
+                print("If you don't have enough trees, RADIUS, and PLANTON")
             break
         tries += 1
         # choose a location
@@ -1137,7 +1115,7 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist):
         if y_top is None:
             # this location is off the map!
             continue
-        if y_top['B'] in PLANTON:
+        if True: #y_top['B'] in PLANTON:
             # plant the tree on the block above the ground
             # hence the " + 1"
             y = y_top['y'] + 1
