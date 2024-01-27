@@ -228,6 +228,7 @@ class NbtTag7(NbtTagBase):
         output = b''
         for val in self.payload:
             output += pack(self.payload_type, val)
+
         return output
 
     def __init__(self, data_ob, named=True):
@@ -442,26 +443,25 @@ class NbtTag11(NbtTag7):
     """TAG_Int_Array"""
     tag_type = 11
     Element_Byte_Size = 4
-    payload_type = '>i'
+    payload_type = '>I'
 
 
 class NbtTag12(NbtTag7):
     """TAG_Long_Array"""
     tag_type = 12
     Element_Byte_Size = 8
-    payload_type = '>q'
+    payload_type = '>Q'
 
     def encodePayload(self):
         # check if this is a dirty block data array
         if hasattr(self, "unpacked"):
             # re-pack the integers
-            bit_length = max(len(bin(len(self.palette)-1))-2,4)
-            stride = (64 - (64 % bit_length))
-            ids_per_int = 64 // bit_length
+            bit_length = max(len(bin(len(self.palette) - 1)) - 2, 4)
+            ids_per_int = 64 // bit_length  # Number of indices per 64-bit integer
+            stride = ids_per_int * bit_length  # Number of bits in each packed integer
 
             # Collect binary representations of indices
             binary_chunks = [format(index, f'0{bit_length}b') for index in self.unpacked]
-
             # Reverse the order within each 64-bit chunk and concatenate
             binary_string = ''.join(
                 ''.join(reversed(binary_chunks[i:i + ids_per_int]))
@@ -470,6 +470,15 @@ class NbtTag12(NbtTag7):
 
             # Convert to 64-bit integers
             self.payload = [int(binary_string[i:i + stride], 2) for i in range(0, len(binary_string), stride)]
+            if hasattr(self, 'initial_bit_length'):
+                if bit_length != self.initial_bit_length:
+                    # chunks appear to be getting corrupted
+                    # when the bit_length encoding changes
+                    # does not happen for sections that are already 5
+                    # bitlength, just ones that started at 4
+                    # no hints why this is happening so far
+                    # very strange
+                    pass
 
         return NbtTag7.encodePayload(self)
 
@@ -572,11 +581,10 @@ class Region(object):
         """Return the parsed NBT file containing the chunk.
         Cache already extracted chunks for quick access."""
         # check if the chunk is cached.
-        try:
+        if num in self.cached_chunks:
             cached_chunk = self.cached_chunks[num]
             return cached_chunk
-        except:
-            pass
+
         # if it's not cached...
         # check to see if it is populated
         try:
@@ -816,7 +824,7 @@ class SaveFile(object):
     def block_to_idx(self, blk_x, blk_y, blk_z):
         """Convert absolute block cords to an intra-section index."""
         if blk_y > self.map_height or blk_y < self.map_bottom:
-            raise IndexError
+            return None
         idx = (blk_y % 16) * 16 * 16 + (blk_z % 16) * 16 + (blk_x % 16)
         return idx
 
@@ -887,16 +895,16 @@ class SaveFile(object):
         this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
         # if the chunk doesn't exist, return None
         if this_chunk is None:
-            return None, None
+            return None, None, None
         # map the dict storing the relevant tag data
         sections = this_chunk.tags[0].payload['sections'].payload
         # +64 or +63? what is the proper offset?
-        secidx = (blk_y+64) // 16
-        if secidx < len(sections):
-            section = sections[secidx].payload
+        idx = (blk_y+64) // 16
+        if idx < len(sections):
+            section = sections[idx].payload
         else:
             # no section means the block is air
-            return secidx, sections
+            return idx, sections, None
         # Grab the pallete, we need it later, and also now
         block_states = section['block_states'].payload
         palette = block_states['palette'].payload
@@ -935,6 +943,7 @@ class SaveFile(object):
             return block_data
         # just do something like this?
         blkidx = self.block_to_idx(blk_x, blk_y, blk_z)
+        if blkidx is None: return None
         if not hasattr(data, "unpacked"):
             self.unpack_block_states(data, palette)
         foundpltid = data.unpacked[blkidx]
@@ -1107,14 +1116,14 @@ class SaveFile(object):
         palette.append(item)
 
     @staticmethod
-    def new_section(secidx, filltype='minecraft:air'):
+    def new_section(idx, filltype='minecraft:air'):
         """generates a section that is all air, or whatever the filltype is"""
         # generate a new section
         newsec = NbtTag10(NbtNew())
         newsec.named = False
         newY_tag = NbtTag1(NbtNew())
         newY_tag.name = 'Y'
-        newY_tag.payload = secidx - 4
+        newY_tag.payload = idx - 4
         newsec.payload['Y'] = newY_tag
         newBlocks_tag = NbtTag10(NbtNew())
         newBlocks_tag.name = 'block_states'
@@ -1140,15 +1149,28 @@ class SaveFile(object):
     @staticmethod
     def unpack_block_states(data, palette):
         data.palette = palette
-        # actually unpack the data
+        # Calculate the bit length and stride
         bit_length = max(len(bin(len(palette) - 1)) - 2, 4)
+        data.initial_bit_length = bit_length
         stride = 64 - (64 % bit_length)
+
+        # Create binary chunks
         binary_chunks = [
             [(format(number, f'0{stride}b'))[i:i + bit_length] for i in range(0, stride, bit_length)][::-1]
             for number in data.payload
         ]
+
+        # Concatenate binary chunks into a binary string
         binary_string = ''.join(''.join(c for c in subchunk) for subchunk in binary_chunks)
-        data.unpacked = [int(binary_string[i:i + bit_length], 2) for i in range(0, bit_length * 4096, bit_length)]
+
+        # Ensure binary_string is correctly padded to a multiple of bit_length
+        total_bits = bit_length * 4096
+        if len(binary_string) < total_bits:
+            binary_string += '0' * (total_bits - len(binary_string))
+
+        # Convert binary string to integers
+        data.unpacked = [int(binary_string[i:i + bit_length], 2) for i in range(0, total_bits, bit_length)]
+
 
     def set_block(self, blk_x, blk_y, blk_z, sett):
         """Set the block data to settings.
@@ -1157,6 +1179,8 @@ class SaveFile(object):
         'B' for block type
         all other values are the block property to set.
         """
+        blkidx = self.block_to_idx(blk_x, blk_y, blk_z)
+        if blkidx is None: return None
         palette, data, block_states = self.get_block_data(blk_x, blk_y, blk_z)
         if palette is None:
             # No chunk!
@@ -1167,14 +1191,14 @@ class SaveFile(object):
                 # it's already air! act like you did something
                 return True
             sections = data
-            secidx = palette
-            while len(sections) <= secidx:
+            idx = palette
+            while len(sections) <= idx:
                 newsection = self.new_section(len(sections))
                 sections.append(newsection)
-            section = sections[secidx].payload
-            # making a new data section and possibly expanding it
-            # is going to be a real pain
-            data = self.newblockdata()
+            section = sections[idx].payload
+            block_states = section['block_states'].payload
+            palette = block_states['palette'].payload
+            data = None
         found = False
         # search the palette for the item we're looking for
         for i in range(len(palette)):
@@ -1197,6 +1221,7 @@ class SaveFile(object):
                     found = i
                     break
         if not isinstance(found, int) or isinstance(found, bool):
+            # generate a new palette entry
             self.add_block_data(palette, sett)
             found = len(palette) - 1
             if data is None:
@@ -1206,7 +1231,6 @@ class SaveFile(object):
             # cache the index for the block and return it?
             # for multiple assignment optimization?
 
-        blkidx = self.block_to_idx(blk_x, blk_y, blk_z)
         if not hasattr(data, "unpacked"):
             self.unpack_block_states(data, palette)
         # actually set the block value
@@ -1341,6 +1365,94 @@ class SaveFile(object):
         self.write_blocks()
         return True
 
+# some helper lists of block types
+
+# Natural Blocks
+blocktype_soils = ('grass_block', 'dirt', 'coarse_dirt', 'podzol', 'mycelium', 'rooted_dirt', 'mud')
+blocktype_sands = ('gravel', 'sand', 'red_sand')
+
+# Stone Blocks
+blocktype_stones = ('stone', 'deepslate', 'granite', 'diorite', 'andesite', 'sandstone', 'red_sandstone',
+                    'calcite', 'tuff', 'dripstone_block', 'prismarine', 'obsidian', 'crying_obsidian',
+                    'netherrack', 'blackstone', 'basalt', 'smooth_basalt', 'end_stone')
+# stairs
+# slabs
+# walls
+# polished blocks
+# polished stairs
+# polished slabs
+
+# wood blocks
+base_woods = ('oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry')
+blocktype_bark_logs = tuple(i+'_log' for i in base_woods)
+blocktype_stripped_logs = tuple('stripped_' + i + '_log' for i in base_woods)
+blocktype_all_logs = blocktype_bark_logs + blocktype_stripped_logs
+# also need the "wood" blocks
+
+# leaf blocks
+blocktype_leaves = tuple(i+'_leaves' for i in base_woods + ('azalea', 'flowering_azalea'))
+
+# Plank Blocks
+blocktype_planks = tuple(i+'_planks' for i in base_woods + ('bamboo', 'crimson', 'warped'))
+# slabs
+# stairs
+# fences
+# gates
+# doors
+# pressure plates
+# buttons
+
+
+# Ore Blocks
+base_metals = ('iron', 'gold', 'copper')
+base_ores = ('coal', 'redstone', 'lapis', 'diamond', 'emerald') + base_metals
+blocktype_ores = tuple( i+'_ore' for i in base_ores + tuple('deepslate_'+i for i in base_ores) + ('nether_gold', 'nether_quartz'))
+blocktype_raw_metals = tuple('raw_'+i+'_block' for i in base_metals)
+blocktype_extractable = blocktype_ores + blocktype_raw_metals
+
+# Construction Blocks
+blocktype_bricks = tuple(i+'bricks' for i in ('', 'mossy_stone_', 'stone_', 'cracked_stone_', 'chiseled_stone_', 'nether_', 'cracked_nether_', 'chiseled_nether_', 'red_nether_', 'deepslate_', 'cracked_deepslate_', 'mud_', 'prismarine_', 'polished_blackstone_', 'cracked_polished_blackstone_', 'end_stone_', 'quartz_'))
+
+
+# Redstone Blocks
+redstones = ('redstone_block', 'redstone_lamp', 'redstone_torch', 'repeater', 'comparator', 'observer', 'piston', 'sticky_piston')
+
+# Utility Blocks
+utilities = ('crafting_table', 'furnace', 'blast_furnace', 'smoker', 'anvil', 'grindstone', 'loom', 'cartography_table', 'enchanting_table', 'stonecutter')
+
+# Plants & Food
+plants = ['wheat_seeds', 'wheat', 'sugar_cane', 'pumpkin', 'melon', 'carrot', 'potato', 'beetroot']
+foods = ['bread', 'pumpkin_pie', 'cake', 'cookie', 'cooked_porkchop', 'steak', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit']
+
+# Lights
+light_sources = (
+    'torch',
+    'lantern',
+    'sea_lantern',
+    'glowstone',
+    'shroomlight',
+    'campfire',
+    'soul_campfire',
+    'redstone_lamp',
+    'beacon',
+    'end_rod',
+    'jack_o_lantern',
+    'conduit',
+    'fire',
+    'soul_fire',
+    'soul_torch',
+    'soul_lantern',
+    'magma_block',  # emits a small amount of light
+    'lava',
+    'end_portal_frame',  # emits a small amount of light
+    'brown_mushroom',  # emits a small amount of light
+    'end_gateway',  # emits a strong light
+    'end_portal',  # emits a strong light
+    'chorus_plant',  # emits a small amount of light
+)
+
+# Note that some blocks like magma block and brown mushroom emit a low light level compared to others like torches and lanterns.
+
 
 if __name__ == '__main__':
     # some test functions
@@ -1354,15 +1466,15 @@ if __name__ == '__main__':
     ## mc_level.dat.tags[0].payload['Data'].payload['SpawnZ'].payload = 142
     ## mc_level.write_dat()
 
-    x = 80
-    y = 70
-    z = -39
+    x, y, z = tuple(int(i) for i in mc_level.get_player_pos())
 
     secidx = (y + 64) // 16
 
     chunk = mc_level.get_chunk_from_cord(x, z)
     sec = chunk.tags[0].payload['sections'].payload[secidx].payload
+    lowersec = chunk.tags[0].payload['sections'].payload[secidx-1].payload
     pal = sec['block_states'].payload['palette'].payload
+    lowerpal = lowersec['block_states'].payload['palette'].payload
     pass
     # sections = chunk.tags[0].payload['sections'].payload
     # for i in range(9):
@@ -1415,3 +1527,5 @@ if __name__ == '__main__':
 # To Do
 # investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
 # actually not a problem, but maybe could remove the source data pointer from each object?
+
+# corrupted chunks on bitlength increment

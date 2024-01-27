@@ -11,14 +11,15 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html"""
 LOADNAME = "TestB"
 
 # How many trees do you want to add?
-TREECOUNT = 7
+TREECOUNT = 45
 
 # The trees will be added around the player's location, so you can just stand anywhere.
 
 # How large an area do you want the trees to be in?
 # for example, RADIUS = 10 will make place trees randomly in
 # a circular area 20 blocks wide.
-RADIUS = 25
+PLANT_CLEAR_RADIUS = 10
+PLANT_RING_WIDTH   = 39
 # NOTE: tree density will be higher in the center than at the edges,
 # unless you set INTERPOLATION to 'even' in the advanced section.
 
@@ -47,11 +48,11 @@ SHAPE = "procedural"
 
 # CENTERHEIGHT is the height of the trees at the center of the area
 # ie, when radius = 0
-CENTERHEIGHT = 35
+CENTERHEIGHT = 25
 
 # EDGEHEIGHT is the height at the trees at the edge of the area.
 # ie, when radius = RADIUS
-EDGEHEIGHT = 19
+EDGEHEIGHT = 20
 
 # What should the variation in HEIGHT be?
 # actual value +- variation
@@ -78,7 +79,7 @@ WOOD = True
 # 4.0 makes a thick trunk (good for HOLLOWTRUNK).
 # 10.5 will make a huge thick trunk.  Not even kidding. Makes spacious
 # hollow trunks though!
-TRUNKTHICKNESS = 2.5
+TRUNKTHICKNESS = 1.61
 
 # Trunk height, as a fraction of the tree
 # Only works on "round" shaped trees
@@ -89,7 +90,7 @@ TRUNKTHICKNESS = 2.5
 # 1.0 the trunk will extend to the top of the tree, and there will be no crown
 # 2.0 the trunk will extend out the top of the foliage, making the tree appear
 # like a cluster of green grapes impaled on a spike.
-TRUNKHEIGHT = 0.7
+TRUNKHEIGHT = 0.618
 
 # Do you want the trunk and tree broken off at the top?
 # removes about half of the top of the trunk, and any foliage
@@ -157,7 +158,7 @@ FOLIAGEDENSITY = 1.0
 # Limit the tree height to the top of the map?
 # True the trees will not grow any higher than the top of the map
 # False the trees may be cut off by the top of the map
-MAPHEIGHTLIMIT = True
+MAPHEIGHTLIMIT = False
 
 # add lights in the middle of foliage clusters
 # for those huge trees that get so dark underneath
@@ -167,7 +168,7 @@ MAPHEIGHTLIMIT = True
 # 1 adds one light inside the foliage clusters for a bit of light
 # 2 adds two lights around the base of each cluster, for more light
 # 4 adds lights all around the base of each cluster for lots of light
-LIGHTTREE = 0
+LIGHTTREE = 2
 
 # Do you want to only place trees near existing trees?
 # True will only plant new trees near existing trees.
@@ -181,48 +182,54 @@ ONLYINFORESTS = False
 # Advanced options! #
 #####################
 
+# The following is an interface class for .mclevel data for minecraft savefiles.
+# The following also includes a useful coordinate to index convertor and several
+# other useful functions.
+
+import mcInterface
+from random import random, choice
+from math import sqrt, sin, cos, pi
+
+
 # What kind of material should the "wood" be made of?
-WOODMAT = {"B":'minecraft:birch_log', "axis":'y'}
+# Randomly selects a log type by default: choice(mcInterface.blocktype_bark_logs)
+# for your convenience, here are the log types
+# ('oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log')
+wood_name = choice(mcInterface.blocktype_bark_logs)
+#wood_name = 'birch_log'
+WOODMAT = {"B":'minecraft:'+wood_name, "axis":'y'}
 
 # What kind of material should the "leaves" be made of?
-# defaults to 18
-LEAFMAT = {"B":'minecraft:birch_leaves', 'persistent': 'true'}
+# defaults to choice(mcInterface.blocktype_leaves)
+# for your convenience, here are the leaf types
+# ('oak_leaves', 'spruce_leaves', 'birch_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves', 'cherry_leaves', 'azalea_leaves', 'flowering_azalea_leaves')
+leaf_name = choice(mcInterface.blocktype_leaves)
+LEAFMAT = {"B":'minecraft:'+leaf_name, 'persistent': 'true'}
 
 # What kind of material should the "lights" be made of?
 # defaults to 89 (glowstone)
-LIGHTMAT = {"B":'minecraft:torch'}
+LIGHTMAT = {"B":'sea_lantern'}
 
 # What kind of material would you like the "hollow" trunk filled with?
 # defaults to 0 (air)
 TRUNKFILLMAT = {"B":'minecraft:air'}
 
 # What kind of blocks should the trees be planted on?
-# Use the Minecraft index.
-# Examples
-# 2 is grass (the default)
-# 3 is dirt
-# 1 is stone (an odd choice)
-# 12 is sand (for beach or desert)
-# 9 is water (if you want an aquatic forest,
-#             good with SHAPE = "mangrove" )
-# this is a list, and comma seperated.
-# example: [2,3]
-# will plant trees on grass or dirt
-# default is [2] (just plant on grass)
-PLANTON = [2]
+# Use the Minecraft block name.
+# default is mcInterface.blocktype_soils
+
+PLANTON = mcInterface.blocktype_soils
 
 # What kind of blocks should stop the roots?
-# a list of block id numbers like PLANTON
-# Only works if ROOTS = "tostone"
-# default, [1] (stone)
-# if you want it to be stopped by other block types, add it to the list
-STOPSROOTS = [1]
+# a list of block type names
+# default is mcInterface.blocktype_stones
+STOPSROOTS = mcInterface.blocktype_stones
 
 # What kind of blocks should stop branches?
 # same as STOPSROOTS above, but is always turned on
 # defaults to stone, cobblestone, and glass
 # set it to [] if you want branches to go through everything
-STOPSBRANCHES = [1, 4, 20]
+STOPSBRANCHES = [] # mcInterface.blocktype_soils + mcInterface.blocktype_stones + mcInterface.blocktype_bricks
 
 # How do you want to interpolate the tree placement?
 # "linear" places more trees in the center
@@ -313,12 +320,6 @@ LEAFINFO = LEAFMAT.copy()
 LIGHTINFO = LIGHTMAT.copy()
 TRUNKFILLINFO = TRUNKFILLMAT.copy()
 
-# The following is an interface class for .mclevel data for minecraft savefiles.
-# The following also includes a useful coordinate to index convertor and several
-# other useful functions.
-
-import mcInterface
-
 
 # some handy functions
 
@@ -356,9 +357,6 @@ def dist_to_mat(cord, vec, matidxlist, mcmap: mcInterface.SaveFile, invert=False
 # This is the end of the MCLevel interface.
 
 # Now, on to the actual code.
-
-from random import random, choice
-from math import sqrt, sin, cos, pi
 
 
 def assign_value(x, y, z, values, save_file):
@@ -495,7 +493,7 @@ class PalmTree(StickTree):
                     assign_value(x, y, z, LEAFINFO, mcmap)
         return 1
 
-
+dir_orientation_map = ('x','y','z')
 def crossection(center, radius, diraxis, matidx, mcmap):
     """Create a round section of type matidx in mcmap.
 
@@ -511,6 +509,8 @@ def crossection(center, radius, diraxis, matidx, mcmap):
     """
     rad = int(radius + .618)
     if rad <= 0: return None
+    if 'axis' in matidx:
+        matidx['axis'] = dir_orientation_map[diraxis]
     secidx1 = (diraxis - 1) % 3
     secidx2 = (1 + diraxis) % 3
     coord = [0, 0, 0]
@@ -625,7 +625,7 @@ class ProceduralTree(Tree):
         for coord in foliage_coords:
             self.foliagecluster(coord, mcmap)
         for cord in foliage_coords:
-            assign_value(cord[0], cord[1], cord[2], WOODINFO, mcmap)
+            #assign_value(cord[0], cord[1], cord[2], WOODINFO, mcmap)
             if LIGHTTREE == 1:
                 assign_value(cord[0], cord[1] + 1, cord[2], LIGHTINFO, mcmap)
             elif LIGHTTREE in [2, 4]:
@@ -1106,7 +1106,7 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist: list):
             rad_fraction **= 2
             rad_fraction = 1.0 - rad_fraction
         # this is the linear interpolation.
-        rad = rad_fraction * RADIUS
+        rad = rad_fraction * PLANT_RING_WIDTH + PLANT_CLEAR_RADIUS
         ang = random() * pi * 2
         x = X + int(rad * sin(ang) + .5)
         z = Z + int(rad * cos(ang) + .5)
@@ -1258,5 +1258,4 @@ if __name__ == '__main__':
     standalone()
 
 # to do:
-# get height limits from map
-# set "limit height" or somesuch to respect level height limits
+# get roots working again
