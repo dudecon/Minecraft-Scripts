@@ -458,12 +458,13 @@ class NbtTag12(NbtTag7):
         # check if this is a dirty block data array
         if hasattr(self, "unpacked"):
             # re-pack the integers
-            bit_length = max(len(bin(len(self.palette) - 1)) - 2, 4)
-            ids_per_int = 64 // bit_length  # Number of indices per 64-bit integer
-            stride = ids_per_int * bit_length  # Number of bits in each packed integer
+            bit_length = max(len(bin(len(self.palette)-1))-2,4)
+            stride = (64 - (64 % bit_length))
+            ids_per_int = 64 // bit_length
 
             # Collect binary representations of indices
             binary_chunks = [format(index, f'0{bit_length}b') for index in self.unpacked]
+
             # Reverse the order within each 64-bit chunk and concatenate
             binary_string = ''.join(
                 ''.join(reversed(binary_chunks[i:i + ids_per_int]))
@@ -472,15 +473,6 @@ class NbtTag12(NbtTag7):
 
             # Convert to 64-bit integers
             self.payload = [int(binary_string[i:i + stride], 2) for i in range(0, len(binary_string), stride)]
-            if hasattr(self, 'initial_bit_length'):
-                if bit_length != self.initial_bit_length:
-                    # chunks appear to be getting corrupted
-                    # when the bit_length encoding changes
-                    # does not happen for sections that are already 5
-                    # bitlength, just ones that started at 4
-                    # found a payload length calculation that was going wrong
-                    # unfortunately still appears broken
-                    pass
 
         return NbtTag7.encodePayload(self)
 
@@ -908,12 +900,17 @@ class SaveFile(object):
             # no section means the block is air
             return idx, sections, None
         # Grab the pallete, we need it later, and also now
-        block_states = section['block_states'].payload
-        palette = block_states['palette'].payload
-        # also, the data
-        if 'data' in block_states:
-            data = block_states['data']
-        else: data = None
+        if 'block_states' in section:
+            block_states = section['block_states'].payload
+            palette = block_states['palette'].payload
+            if 'data' in block_states:
+                data = block_states['data']
+            else: data = None
+        else:
+            block_states = None
+            data = None
+            palette = None
+
         return palette, data, block_states
 
     def block(self, blk_x, blk_y, blk_z, fetch_properties=False):
@@ -1151,27 +1148,15 @@ class SaveFile(object):
     @staticmethod
     def unpack_block_states(data, palette):
         data.palette = palette
-        # Calculate the bit length and stride
+        # actually unpack the data
         bit_length = max(len(bin(len(palette) - 1)) - 2, 4)
-        data.initial_bit_length = bit_length
         stride = 64 - (64 % bit_length)
-
-        # Create binary chunks
         binary_chunks = [
             [(format(number, f'0{stride}b'))[i:i + bit_length] for i in range(0, stride, bit_length)][::-1]
             for number in data.payload
         ]
-
-        # Concatenate binary chunks into a binary string
         binary_string = ''.join(''.join(c for c in subchunk) for subchunk in binary_chunks)
-
-        # Ensure binary_string is correctly padded to a multiple of bit_length
-        total_bits = bit_length * 4096
-        if len(binary_string) < total_bits:
-            binary_string += '0' * (total_bits - len(binary_string))
-
-        # Convert binary string to integers
-        data.unpacked = [int(binary_string[i:i + bit_length], 2) for i in range(0, total_bits, bit_length)]
+        data.unpacked = [int(binary_string[i:i + bit_length], 2) for i in range(0, bit_length * 4096, bit_length)]
 
 
     def set_block(self, blk_x, blk_y, blk_z, sett):
@@ -1201,6 +1186,7 @@ class SaveFile(object):
             block_states = section['block_states'].payload
             palette = block_states['palette'].payload
             data = None
+
         found = False
         # search the palette for the item we're looking for
         for i in range(len(palette)):
@@ -1223,15 +1209,16 @@ class SaveFile(object):
                     found = i
                     break
         if not isinstance(found, int) or isinstance(found, bool):
-            # generate a new palette entry
-            self.add_block_data(palette, sett)
-            found = len(palette) - 1
+            # unpack the block data before altering the palette
             if data is None:
                 data = self.new_block_data()
                 block_states['data'] = data
-
-            # cache the index for the block and return it?
-            # for multiple assignment optimization?
+            if not hasattr(data, "unpacked"):
+                self.unpack_block_states(data, palette)
+            # now we can mess with the palette, since we have unpacked the data
+            # generate a new palette entry
+            self.add_block_data(palette, sett)
+            found = len(palette) - 1
 
         if not hasattr(data, "unpacked"):
             self.unpack_block_states(data, palette)

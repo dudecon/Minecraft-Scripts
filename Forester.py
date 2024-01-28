@@ -11,15 +11,15 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html"""
 LOADNAME = "TestB"
 
 # How many trees do you want to add?
-TREECOUNT = 7
+TREECOUNT = 75
 
 # The trees will be added around the player's location, so you can just stand anywhere.
 
 # How large an area do you want the trees to be in?
 # for example, RADIUS = 10 will make place trees randomly in
 # a circular area 20 blocks wide.
-PLANT_CLEAR_RADIUS = 6
-PLANT_RING_WIDTH   = 3
+PLANT_CLEAR_RADIUS = 32
+PLANT_RING_WIDTH   = 163
 # NOTE: tree density will be higher in the center than at the edges,
 # unless you set INTERPOLATION to 'even' in the advanced section.
 
@@ -48,11 +48,11 @@ SHAPE = "procedural"
 
 # CENTERHEIGHT is the height of the trees at the center of the area
 # ie, when radius = 0
-CENTERHEIGHT = 25
+CENTERHEIGHT = 60
 
 # EDGEHEIGHT is the height at the trees at the edge of the area.
 # ie, when radius = RADIUS
-EDGEHEIGHT = 10
+EDGEHEIGHT = 15
 
 # What should the variation in HEIGHT be?
 # actual value +- variation
