@@ -196,7 +196,7 @@ class NbtTag7(NbtTagBase):
 
     def encode_payload_length(self):
         """encode the payload length"""
-        length = len(self.payload)  # *self.Element_Byte_Size
+        length = len(self.payload) # * self.Element_Byte_Size
         raw_length = pack('>I', length)
         return raw_length
 
@@ -278,8 +278,12 @@ class NbtTag7(NbtTagBase):
             output = b''
         if self.named:
             output += self.encodeName()
+        # We must encode the payload first
+        # because the payload length may change during encoding
+        # for example, when encoding the block position array
+        temp_payload_output = self.encodePayload()
         output += self.encode_payload_length()
-        output += self.encodePayload()
+        output += temp_payload_output
         return output
 
 
@@ -297,13 +301,8 @@ class NbtTag8(NbtTag7):
 
     def encode_payload_length(self):
         """encode the payload length"""
-        # calculate the raw payload length, since utf_8 characters
-        # may not correspond 1 to 1 with byte characters
-        raw_payload = bytes(self.payload, 'utf_8')
-        # cache the raw bytes for use in encodePayload
-        self.raw_payload = raw_payload
         # find the length
-        length = len(raw_payload)
+        length = len(self.raw_payload)
         # pack it up
         raw_length = pack('>H', length)
         return raw_length
@@ -318,9 +317,12 @@ class NbtTag8(NbtTag7):
 
     def encodePayload(self):
         """output the payload, encoded in NBT format"""
-        # since encode_payload_length() should have already been called
-        # use the cached raw output
-        return self.raw_payload
+        # calculate the raw payload length, since utf_8 characters
+        # may not correspond 1 to 1 with byte characters
+        raw_payload = bytes(self.payload, 'utf_8')
+        # cache the raw bytes for use in encodePayload
+        self.raw_payload = raw_payload
+        return raw_payload
 
     def __str__(self):
         """Return a nice string representing the tag string contents."""
@@ -443,7 +445,7 @@ class NbtTag11(NbtTag7):
     """TAG_Int_Array"""
     tag_type = 11
     Element_Byte_Size = 4
-    payload_type = '>I'
+    payload_type = '>i'
 
 
 class NbtTag12(NbtTag7):
@@ -476,8 +478,8 @@ class NbtTag12(NbtTag7):
                     # when the bit_length encoding changes
                     # does not happen for sections that are already 5
                     # bitlength, just ones that started at 4
-                    # no hints why this is happening so far
-                    # very strange
+                    # found a payload length calculation that was going wrong
+                    # unfortunately still appears broken
                     pass
 
         return NbtTag7.encodePayload(self)
