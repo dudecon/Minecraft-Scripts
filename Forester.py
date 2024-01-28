@@ -880,11 +880,13 @@ class ProceduralTree(Tree):
             top_radius = endrad - wall_thickness
             # the starting x and y can be offset by up to the wall thickness.
             base_offset = int(wall_thickness)
-            x_choices = [i for i in range(x - base_offset,
-                                          x + base_offset + 1)]
+            ix = int(x)
+            iz = int(z)
+            x_choices = [i for i in range(ix - base_offset,
+                                          ix + base_offset + 1)]
             start_x = choice(x_choices)
-            z_choices = [i for i in range(z - base_offset,
-                                          z + base_offset + 1)]
+            z_choices = [i for i in range(iz - base_offset,
+                                          iz + base_offset + 1)]
             start_z = choice(z_choices)
             taperedcylinder([start_x, starty, start_z], [x, midy, z],
                             base_radius, mid_radius,
