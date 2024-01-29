@@ -1430,9 +1430,21 @@ blocktype_tallplants = ('tall_grass', )
 blocktype_tallflowers = ('sunflower', 'pitcher_plant')
 
 blocktype_plants = ('short_grass', 'fern')
-blocktype_flowers = ('poppy', 'torchflower', 'cornflower', 'dandelion', '')
+blocktype_tulips = tuple(i+'_tulip' for i in ('white','pink','red','orange'))
+blocktype_flowers = ('poppy', 'torchflower', 'cornflower', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+                     'oxeye_daisy', 'lily_of_the_valley', '') + blocktype_tulips
 blocktype_short_plants = blocktype_plants + blocktype_flowers
-blocktype_shrooms = ('brown_mushroom', '')
+
+blocktype_pink_petals = {'B':'pink_petals', 'flower_amount': '4', 'facing':'north'}
+
+# mushrooms can only be planted
+blocktype_shrooms = tuple(i+'_mushroom' for i in ('brown', 'red'))
+
+
+facing_options = ('north','east','south','west')
+
+# vines on positive Z side of a block are "north":"true"
+# vines on positive X side of a block are "west":"true"
 
 itemtype_foods = ['bread', 'pumpkin_pie', 'cake', 'cookie', 'cooked_porkchop', 'steak', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit']
 
@@ -1544,3 +1556,4 @@ if __name__ == '__main__':
 # investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
 # actually not a problem, but maybe could remove the source data pointer from each object?
 
+# corrupted chunks on bitlength increment
