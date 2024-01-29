@@ -1410,8 +1410,31 @@ redstones = ('redstone_block', 'redstone_lamp', 'redstone_torch', 'repeater', 'c
 utilities = ('crafting_table', 'furnace', 'blast_furnace', 'smoker', 'anvil', 'grindstone', 'loom', 'cartography_table', 'enchanting_table', 'stonecutter')
 
 # Plants & Food
-plants = ['wheat_seeds', 'wheat', 'sugar_cane', 'pumpkin', 'melon', 'carrot', 'potato', 'beetroot']
-foods = ['bread', 'pumpkin_pie', 'cake', 'cookie', 'cooked_porkchop', 'steak', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit']
+farmland = {'B':'farmland','moisture':'7'}
+# these crops need to be planted on farmland
+# set the "age" flag for crop growth. crops are grouped by maturity
+blocktype_crop_blocks   = ('pumpkin', 'melon')
+blocktype_crops_vines   = ('pumpkin_stem', 'melon_stem')
+blocktype_crops_7mature = ('wheat', 'potatoes', 'carrots') + blocktype_crops_vines
+blocktype_crops_3mature = ('beetroots',)
+blocktype_crops = blocktype_crops_7mature + blocktype_crops_3mature
+
+# the berry bush does not need to be planted on farmland
+blocktype_berry_bush = {'B':'sweet_berry_bush','age':'3'}
+# the sugarcane must be planted by water
+blocktype_sugarcane  = {'B':'sugar_cane','age':'14'}
+
+# Passable Cosmetic Plants
+# The tall plants below have a 'half' property which should be set to 'upper' or 'lower'
+blocktype_tallplants = ('tall_grass', )
+blocktype_tallflowers = ('sunflower', 'pitcher_plant')
+
+blocktype_plants = ('short_grass', 'fern')
+blocktype_flowers = ('poppy', 'torchflower', 'cornflower', 'dandelion', '')
+blocktype_short_plants = blocktype_plants + blocktype_flowers
+blocktype_shrooms = ('brown_mushroom', '')
+
+itemtype_foods = ['bread', 'pumpkin_pie', 'cake', 'cookie', 'cooked_porkchop', 'steak', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit']
 
 # Lights
 light_sources = (
@@ -1438,6 +1461,10 @@ light_sources = (
     'end_gateway',  # emits a strong light
     'end_portal',  # emits a strong light
     'chorus_plant',  # emits a small amount of light
+    'ochre_froglight',
+    'pearlescent_froglight',
+    'verdant_froglight',
+    
 )
 
 # Note that some blocks like magma block and brown mushroom emit a low light level compared to others like torches and lanterns.
@@ -1517,4 +1544,3 @@ if __name__ == '__main__':
 # investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
 # actually not a problem, but maybe could remove the source data pointer from each object?
 
-# corrupted chunks on bitlength increment
