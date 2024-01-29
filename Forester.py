@@ -11,15 +11,15 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html"""
 LOADNAME = "TestB"
 
 # How many trees do you want to add?
-TREECOUNT = 75
+TREECOUNT = 5
 
 # The trees will be added around the player's location, so you can just stand anywhere.
 
 # How large an area do you want the trees to be in?
 # for example, RADIUS = 10 will make place trees randomly in
 # a circular area 20 blocks wide.
-PLANT_CLEAR_RADIUS = 32
-PLANT_RING_WIDTH   = 163
+PLANT_CLEAR_RADIUS = 4
+PLANT_RING_WIDTH   = 3
 # NOTE: tree density will be higher in the center than at the edges,
 # unless you set INTERPOLATION to 'even' in the advanced section.
 
@@ -36,7 +36,7 @@ PLANT_RING_WIDTH   = 163
 # "rainforest" many slender trees, most at the lower range of the height,
 # with a few at the upper end.
 # "mangrove" makes mangrove trees (see PLANTON below).
-SHAPE = "procedural"
+SHAPE = "round"
 
 # What height should the trees be?
 # Specifies the average height of the tree
@@ -48,11 +48,11 @@ SHAPE = "procedural"
 
 # CENTERHEIGHT is the height of the trees at the center of the area
 # ie, when radius = 0
-CENTERHEIGHT = 60
+CENTERHEIGHT = 35
 
 # EDGEHEIGHT is the height at the trees at the edge of the area.
 # ie, when radius = RADIUS
-EDGEHEIGHT = 15
+EDGEHEIGHT = 20
 
 # What should the variation in HEIGHT be?
 # actual value +- variation
@@ -131,7 +131,7 @@ BRANCHDENSITY = 1.0
 # "hanging" will hang downward in air.  Good for "floating" type maps
 #    (I really miss "floating" terrain as a default option)
 # "no" roots will not be generated
-ROOTS = "no"
+ROOTS = "tostone"
 
 # Do you want root buttresses?
 # These make the trunk not-round at the base, seen in tropical or old trees.
@@ -168,7 +168,7 @@ MAPHEIGHTLIMIT = False
 # 1 adds one light inside the foliage clusters for a bit of light
 # 2 adds two lights around the base of each cluster, for more light
 # 4 adds lights all around the base of each cluster for lots of light
-LIGHTTREE = 2
+LIGHTTREE = 0
 
 # Do you want to only place trees near existing trees?
 # True will only plant new trees near existing trees.
@@ -229,7 +229,7 @@ STOPSROOTS = mcInterface.blocktype_stones
 # same as STOPSROOTS above, but is always turned on
 # defaults to stone, cobblestone, and glass
 # set it to [] if you want branches to go through everything
-STOPSBRANCHES = [] # mcInterface.blocktype_soils + mcInterface.blocktype_stones + mcInterface.blocktype_bricks
+BRANCHESPASS = ('air',) + mcInterface.blocktype_leaves
 
 # How do you want to interpolate the tree placement?
 # "linear" places more trees in the center
@@ -342,9 +342,10 @@ def dist_to_mat(cord, vec, matidxlist, mcmap: mcInterface.SaveFile, invert=False
         z = int(curcord[2])
         blocktype = block(x, y, z)
         if blocktype is None: break
-        if (blocktype in matidxlist) and (invert is False):
+        blockstr = blocktype['B'].replace('minecraft:','')
+        if (blockstr in matidxlist) and (invert is False):
             break
-        elif (blocktype not in matidxlist) and invert:
+        elif (blockstr not in matidxlist) and invert:
             break
         else:
             curcord = [curcord[i] + vec[i] for i in range(3)]
@@ -747,12 +748,12 @@ class ProceduralTree(Tree):
                 if ROOTS == "tostone":
                     searchindex = STOPSROOTS
                 elif ROOTS == "hanging":
-                    searchindex = [0]
+                    searchindex = ['air']
                 # startdist is how many steps to travel before starting to
                 # search for the material.  It is used to ensure that large
                 # roots will go some distance before changing directions
                 # or stopping.
-                startdist = int(random() * 6 * sqrt(rootstartsize) + 2.8)
+                startdist = int(random() * 3.6 * sqrt(rootstartsize) + 2.8)
                 # searchstart is the coordinate where the search should begin
                 searchstart = [startcoord[i] + startdist * vec[i]
                                for i in range(3)]
@@ -935,10 +936,10 @@ class ProceduralTree(Tree):
                 theta = random() * 2 * pi
                 x = int(r * sin(theta)) + treeposition[0]
                 z = int(r * cos(theta)) + treeposition[2]
-                # if there are values to search in STOPSBRANCHES
+                # if there are values to search in BRANCHESPASS
                 # then check to see if this cluster is blocked
                 # by stuff, like dirt or rock, or whatever
-                if len(STOPSBRANCHES):
+                if len(BRANCHESPASS):
                     dist = (sqrt(float(x - treeposition[0]) ** 2 +
                                  float(z - treeposition[2]) ** 2))
                     slope = self.branchslope
@@ -957,8 +958,8 @@ class ProceduralTree(Tree):
                     if offlength < 1: continue
                     # unit vector for the search
                     vec = [offset[i] / offlength for i in range(3)]
-                    mat_dist = dist_to_mat(start, vec, STOPSBRANCHES,
-                                           mcmap, limit=offlength + 3)
+                    mat_dist = dist_to_mat(start, vec, BRANCHESPASS,
+                                           mcmap, limit=offlength + 3, invert=True)
                     # after all that, if you find something, don't add
                     # this coordinate to the list
                     if mat_dist < offlength + 2:
