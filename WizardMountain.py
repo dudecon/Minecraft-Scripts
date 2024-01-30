@@ -1,4 +1,4 @@
-# Version 5
+# Version 6
 """This takes a MineCraft level and rends some landscape up into the sky.
 
 Written by Paul Spooner, with God's help.
@@ -10,38 +10,31 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
 
-LOAD_NAME = "Test"
+LOAD_NAME = "TestB"
 
-# Where do you want the mountain centered?
-# X, and Z are the map coordinates of the center tower
-X = 13
-Z = 274
+# The mountain is centered on the player
 
 # How large (maximum) do you want the mountain?
 # for example, RADIUS = 10 will make a 21 block diameter mountain
 # on level ground.
 # The script tries to match the mountain to the terrain, 
 # so the size will be much smaller on slopes.
-RADIUS = 25
+RADIUS = 15
 
 # How far into the sky do you want to move it?
 # default 15
-HEIGHT = 57
+HEIGHT = 27
 
 # How thick do you want the mountain?
 # This is a scalar
 # 1.0 is the default
 # 2.0 will make a very thick shard
 # 0.2 will make a thin shell, just a bit off the surface really
-DEPTH_SCALE = 2.7
+DEPTH_SCALE = 1.7
 
 #####################
 # Advanced options! #
 #####################
-
-# To find "ground level" the script needs to know what to consider "ground".
-# This is a list of material indexes that are considered "ground" by the script.
-GROUND_LIST = [1, 2, 3, 4, 7, 12, 13, 24, 48, 49, 82]
 
 # What is the maximum vertical distance the mountain zome should jump over?
 # If there's a ditch or cliff higher than MAXVERTICALGAP
@@ -77,8 +70,6 @@ if HEIGHT < 1:
     HEIGHT = 15
     print("This script doesn't put stuff lower than it already is.",
           "Try StarStone with craters turned on.")
-if len(GROUND_LIST) < 1:
-    print("There is nothing in GROUND_LIST, you may encounter problems.")
 if DEPTH_SCALE < 0:
     print("DEPTH_SCALE is negative, setting to zero")
     DEPTH_SCALE = 0
@@ -89,72 +80,31 @@ import mcInterface
 
 # Map height limits
 # gets clobbered from the map height data on map import
-MAPTOP = 384
-MAPBTM = 0
+MAPTOP = mcInterface.SaveFile.map_height
+MAPBTM = mcInterface.SaveFile.map_bottom
 
 # Now, on to the actual code.
 
 from random import random
 from math import sqrt
 
-
-def find_surface(x, y, z, search, mclevel: mcInterface.SaveFile, invert=False):
-    """return the y position on top of blocks you are searching for."""
-    # moves down if not in search, up if in search.
-    # x, y, z int, The starting location for the search
-    # search, list, the data values you are searching for
-    # mclevel, an mcInterface.SaveFile object
-    # invert, search for anything except values in "search"
-    Block = mclevel.block
-    direction = 0
-    # check to see if this block exists
-    # print('find surface cords', x, y, z)
-    info = Block(x, y, z)
-    if info is None: return None
-    while True:
-        info = Block(x, y, z)
-        # find if the block is in the search list
-        void_check = info not in search
-        # flip the truth value if invert is True
-        if invert: void_check = not void_check
-        # if we found what we were looking for
-        if void_check:
-            # and we are moving up
-            if direction == 1:
-                # we're done
-                break
-            direction = -1
-            y += direction
-            # check if you just went off the bottom of the map
-            if y == MAPBTM - 1: return None
-        else:
-            # and we are moving down
-            if direction == -1:
-                # add one (you just left the position you wanted)
-                y += 1
-                # and we're done
-                break
-            direction = 1
-            y += direction
-            # check if you just went off the top of the map
-            if y > MAPTOP:
-                y = MAPTOP
-                break
-    return y
-
-
 class Square(object):
     """a single square that knows about itself"""
 
     def __init__(self, mclevel, x, y, z):
         self.x = x
-        self.y = find_surface(x, y, z, GROUND_LIST, mclevel)
+        self.y = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
         self.z = z
         # what is the current weight of the square?
         # Squares grow when they reach zero weight
         self.weight = -1.0
-        # How much should the weight grow each step?
-        self.growth = 0
+        blocktype = mclevel.block(x, self.y-1, z)
+        blockstr = blocktype['B'].replace('minecraft:', '')
+        if blockstr in mcInterface.blocktype_bark_logs:
+            self.growth = 1
+        else:
+            # How much should the weight grow each step?
+            self.growth = 0
         # How many squares are adjacent to this one?
         self.adjacent = 0
 
@@ -216,6 +166,7 @@ class FlyingMountain(object):
                     # if it's already in the interior,
                     square = self.interior[loc_string]
                 elif loc_string in self.outside:
+                    # if it's already in the outside list
                     square = self.outside[loc_string]
                 # or it's not listed in the dictionary, and needs to be created
                 else:
@@ -320,15 +271,15 @@ class FlyingMountain(object):
         # print(len(self.interior))
         # print(len(self.outside))
         # Default "air" block
-        air_block_data: dict[str, int] = {'B': 0, 'D': 0, 'S': 0, 'L': 2}
+        air_block_data = {'B': 'minecraft:air'}
         for square in self.interior.values():
             y = square.y
             if y is None: continue
             x = square.x
             z = square.z
             # check that it is within RADIUS
-            delta_x = abs(x - X)
-            delta_z = abs(z - Z)
+            delta_x = abs(x - self.origin.x)
+            delta_z = abs(z - self.origin.z)
             this_radius = sqrt(delta_x ** 2 + delta_z ** 2)
             if this_radius == 0: this_radius = 1.0
             if this_radius > (RADIUS + 1):
@@ -343,7 +294,7 @@ class FlyingMountain(object):
             this_depth += 2 + DEPTHOFFSET
             start_y = y - this_depth
             if start_y < MAPBTM: start_y = MAPBTM
-            end_y = MAPTOP
+            end_y = self.save_file.get_heightmap(x, z, "WORLD_SURFACE")
             # go from top to bottom, offseting all the blocks
             height_set = False
             for this_y in range(end_y, start_y, -1):
@@ -351,7 +302,7 @@ class FlyingMountain(object):
                 if new_y > MAPTOP:
                     set_block(x, this_y, z, air_block_data)
                     continue
-                block_data = Block(x, this_y, z, 'BDSL')
+                block_data = Block(x, this_y, z, True)
                 if block_data is None:
                     block_data = air_block_data
                 elif not height_set:
@@ -376,8 +327,12 @@ def main(the_map: mcInterface.SaveFile):
     """Load the file, do the stuff, and save the new file.
     """
     print("Finding the mountain")
+    player_pos = the_map.get_player_pos()
+    position = [int(i) for i in player_pos]
+    newplayerpos = {'y': player_pos[1] + HEIGHT}
+    the_map.set_player_pos(newplayerpos)
     mont = FlyingMountain(the_map)
-    mont.origin_square(X, MAPTOP, Z)
+    mont.origin_square(position[0], MAPTOP, position[2])
     for i in range(RADIUS):
         mont.grow_all()
         if VERBOSE:
@@ -398,8 +353,6 @@ def standalone():
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
-    global MAPTOP
-    MAPTOP = the_map.map_height
     main(the_map)
     print("Saving the map (takes a bit)")
     if the_map.write():
@@ -414,3 +367,7 @@ if __name__ == '__main__':
     standalone()
 
 # Needed updates:
+# update the heightmaps
+# flood-fill trees and foliage
+# close single square islands?
+# fix log detection
