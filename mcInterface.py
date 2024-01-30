@@ -1426,8 +1426,8 @@ blocktype_sugarcane  = {'B':'sugar_cane','age':'14'}
 
 # Passable Cosmetic Plants
 # The tall plants below have a 'half' property which should be set to 'upper' or 'lower'
-blocktype_tallplants = ('tall_grass', )
-blocktype_tallflowers = ('sunflower', 'pitcher_plant')
+blocktype_tallplants = ('tall_grass', 'large_fern')
+blocktype_tallflowers = ('sunflower', 'pitcher_plant', 'lilac', 'rose_bush', 'peony')
 
 blocktype_plants = ('short_grass', 'fern')
 blocktype_tulips = tuple(i+'_tulip' for i in ('white','pink','red','orange'))
@@ -1445,6 +1445,9 @@ facing_options = ('north','east','south','west')
 
 # vines on positive Z side of a block are "north":"true"
 # vines on positive X side of a block are "west":"true"
+
+# twisting vines age goes up to 25
+# plant part has no properties
 
 itemtype_foods = ['bread', 'pumpkin_pie', 'cake', 'cookie', 'cooked_porkchop', 'steak', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit']
 
