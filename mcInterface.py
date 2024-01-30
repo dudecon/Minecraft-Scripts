@@ -926,6 +926,9 @@ class SaveFile(object):
         if palette is None:
             # No chunk!
             return None
+        if data is None:
+            # No chunk!
+            return {'B': 'minecraft:air'}
         if palette == 0:
             # Unpopulated section
             return {'B': 'minecraft:air'}
@@ -1006,11 +1009,15 @@ class SaveFile(object):
         """
         assert map_name in self.valid_heightmaps
         # map the list storing the height map
-        data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
+        heightdata = self.all_height_data(blk_x, blk_z,)
+        if map_name in heightdata:
+            data_list = heightdata[map_name].payload
+        else:
+            return None
         pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
         bin_str = f'{data_list[pld_idx]:064b}'
         # the data value stores the highest non-air block
-        y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2)
+        y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2) - 64
         return y_ht
 
     def get_map_data(self):
@@ -1220,6 +1227,9 @@ class SaveFile(object):
             self.add_block_data(palette, sett)
             found = len(palette) - 1
 
+        if data is None:
+            data = self.new_block_data()
+            block_states['data'] = data
         if not hasattr(data, "unpacked"):
             self.unpack_block_states(data, palette)
         # actually set the block value
@@ -1228,7 +1238,9 @@ class SaveFile(object):
         if RELIGHT:
             # Dirty the lighting, because it's easier to have Minecraft do it
             this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
-            this_chunk.tags[0].payload["isLightOn"].payload = 0
+            chunkdata = this_chunk.tags[0].payload
+            if "isLightOn" in chunkdata:
+                chunkdata["isLightOn"].payload = 0
         return True
 
     def surface_block(self, blk_x, blk_z, options='B'):
@@ -1242,7 +1254,7 @@ class SaveFile(object):
         # this should be the block at the surface of the map
         blk_x = int(blk_x)
         blk_z = int(blk_z)
-        y_ht = self.get_heightmap(blk_x, blk_z, 'MOTION_BLOCKING_NO_LEAVES') - 64
+        y_ht = self.get_heightmap(blk_x, blk_z, 'MOTION_BLOCKING_NO_LEAVES')
         # if the chunk containing the x, z cords has not been generated
         # then return None
         if y_ht is None:
@@ -1428,12 +1440,14 @@ blocktype_sugarcane  = {'B':'sugar_cane','age':'14'}
 # The tall plants below have a 'half' property which should be set to 'upper' or 'lower'
 blocktype_tallplants = ('tall_grass', 'large_fern')
 blocktype_tallflowers = ('sunflower', 'pitcher_plant', 'lilac', 'rose_bush', 'peony')
+blocktype_tall_plants = blocktype_tallplants + blocktype_tallflowers
 
 blocktype_plants = ('short_grass', 'fern')
 blocktype_tulips = tuple(i+'_tulip' for i in ('white','pink','red','orange'))
 blocktype_flowers = ('poppy', 'torchflower', 'cornflower', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
                      'oxeye_daisy', 'lily_of_the_valley', '') + blocktype_tulips
 blocktype_short_plants = blocktype_plants + blocktype_flowers
+blocktype_all_plants = blocktype_short_plants + blocktype_tall_plants
 
 blocktype_pink_petals = {'B':'pink_petals', 'flower_amount': '4', 'facing':'north'}
 
