@@ -1,4 +1,4 @@
-# Version 3
+# Version 4
 """This takes a base MineCraft level and adds a powered rail.
 
 Written by Paul Spooner, with God's help.
@@ -9,14 +9,9 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
-LOADNAME = "TestWorld"
+LOADNAME = "TestB"
 
-# Where do you want to start the rail?
-# X, Y, and Z are the map coordinates
-# This is the position of the first rail block
-X = 282
-Y = 103
-Z = 271
+# starts at the player's location
 
 # What direction do you want it to go from the starting block?
 # '+X' will go in the positive x direction
@@ -26,7 +21,7 @@ Z = 271
 DIRECTION = '-Z'
 
 # How far do you want the rail to go?
-DISTANCE = 144
+DISTANCE = 77999999
 
 # How tall do you want the tunnels?
 # This includes the rail block.
@@ -44,23 +39,20 @@ POWERSPACING = 26
 
 # What material do you want the rail-bed made of?
 # This will be placed under every rail block.
-BEDMAT = 1
-
-# What data value do you want for the rail-bed?
-BEDDATA = 0
+bedname = 'stone_bricks'
+BEDINFO = {"B":'minecraft:'+ bedname}
 
 # How far apart do you want support pillars?
 # These will be used to "support" the rail bed over valleys.
 # Example: 5 will put four blank blocks between each pillar.
 # if set to 0, it will make no pillars.
 # Default, 8
-PILLARSPACING = 8
+PILLARSPACING = 4
 
 # What material do you want the support pillars made of?
-PILLARMAT = 1
+pillarname = 'quartz_pillar'
+PILLARINFO = {"B":'minecraft:'+ pillarname, "axis":'y'}
 
-# What data value do you want for the support pillars?
-PILLARDATA = 0
 
 # How far apart do you want the lights?
 # like PILLARSPACING
@@ -70,11 +62,17 @@ LIGHTSPACING = 8
 
 # What block do you want for the lights?
 # Default, 50 (torches)
-LIGHTMAT = 50
+lightname = 'soul_torch'
+LIGHTINFO = {"B":'minecraft:'+ lightname}
 
-# What data value do you want for the lights?
-# Default, 5 (torch placed on the ground)
-LIGHTDATA = 5
+# what blocks do you want to wall out?
+# leave empty to not check the walls for block types
+WALLOUTTHESE = ['water', 'lava', 'milk']
+
+# What block do you want for the tunnel walls?
+wallname = 'glass'
+WALLINFO = {"B":'minecraft:'+ wallname}
+
 
 # Do you want a bunch of info on what the script is doing?
 # True enables verbose data output
@@ -89,6 +87,8 @@ VERBOSE = False
 DIRECTION = DIRECTION.upper()
 if DIRECTION not in ('+X', '-X', '+Z', '-Z'):
     print("DIRECTION value '" + str(DIRECTION) + "' is not a valid choice, please use '+X', '-X', '+Z', or '-Z'")
+    print("Setting to +X and continuing")
+    DIRECTION = '+X'
 if DISTANCE < 1:
     DISTANCE = 1
     print('DISTANCE was less than 1. Setting to 1 and continuing.')
@@ -105,28 +105,11 @@ if LIGHTSPACING < 1:
     LIGHTSPACING = 0
     print('LIGHTSPACING was less than 1. Adding no lights')
 
-if BEDMAT in (0, 6, 8, 9, 10, 11, 12, 13, 18, 20, 26, 27, 28, 30, 37, 38, 39, 40, 44,
-              50, 51, 52, 53, 55, 59, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 75, 76,
-              77, 78, 80, 81, 83, 85, 90, 92, 93, 94):
-    print("a BEDMAT value of '" + str(BEDMAT) + "' is not generally a good idea. Just saying.")
 
 # assemble the material dictionaries
-BEDINFO = {'B': BEDMAT, 'D': BEDDATA}
-PILLARINFO = {'B': PILLARMAT, 'D': PILLARDATA}
-LIGHTINFO = {'B': LIGHTMAT, 'D': LIGHTDATA}
-POWERINFO = {'B': 76, 'D': 5}
-AIRINFO = {'B': 0, 'D': 0}
 
-LIGHT_REDUCTION_DICT = {0: 0, 8: 2, 18: 1, 20: 0, 27: 0, 28: 0, 37: 0, 38: 0, 39: 0, 40: 0,
-                        50: 0, 51: 0, 52: 0, 63: 0, 64: 0, 65: 0, 66: 0, 68: 0, 69: 0,
-                        70: 0, 71: 0, 72: 0, 75: 0, 76: 0, 77: 0, 78: 1, 79: 2, 83: 1, 85: 0}
-LUMINANCE_DICT = {51: 15, 91: 15, 10: 15, 11: 15, 89: 15, 95: 15, 50: 14, 62: 13,
-                  90: 11, 74: 9, 94: 9, 76: 7}
-
-# absolute vertical limits of the map
-MAPBTM = 0
-# user-facing coordinates go down to -64, so add 65 to compensate
-Y += 65
+POWERINFO = {'B': 'redstone_block'}
+AIRINFO = {'B': 'minecraft:air'}
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
 # The following also includes a useful coordinate to index convertor and several
@@ -134,12 +117,16 @@ Y += 65
 
 import mcInterface
 
+# absolute vertical limits of the map
+MAPBTM = mcInterface.SaveFile.map_bottom
 
 # This is the end of the MCLevel interface.
 
 # Now, on to the actual code.
 
-NON_SUPPORTING_BLOCKS = {0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90}
+NON_SUPPORTING_BLOCKS = (('air', 'water', 'lava', 'pointed_dripstone') + mcInterface.blocktype_shrooms +
+                         mcInterface.blocktype_all_plants + mcInterface.blocktype_crops +
+                         mcInterface.blocktype_crops + mcInterface.blocktype_leaves + mcInterface.blocktype_sands)
 
 def get_surface(x, y, z, mclevel: mcInterface.SaveFile):
     """Return the Y position of the highest 'solid' block at or below x,y,z."""
@@ -152,7 +139,8 @@ def get_surface(x, y, z, mclevel: mcInterface.SaveFile):
     while y > MAPBTM:
         info = get_block(x, y, z)
         if info is None: return None
-        if info not in NON_SUPPORTING_BLOCKS: break
+        blockstr = info['B'].replace('minecraft:', '')
+        if blockstr not in NON_SUPPORTING_BLOCKS: break
         y -= 1
     return y
 
@@ -160,8 +148,10 @@ def get_surface(x, y, z, mclevel: mcInterface.SaveFile):
 def lay_the_rail(mclevel):
     """Increment over the rail positions and call the appropriate create functions when needed."""
     # some more useful globals
-    RAIL_DATA_DICT = {'X': 1, 'Z': 0}
+    RAIL_DATA_DICT = {'Z': 'north_south', 'X': 'east_west'}
     RAIL_DATA = RAIL_DATA_DICT[DIRECTION[1]]
+    rail_info = {'shape': RAIL_DATA, 'powered':'true'}
+
     INCREMENT_DICT = {'-': -1, '+': 1}
     INCREMENT = INCREMENT_DICT[DIRECTION[0]]
     # the position vector is [x, y, z]
@@ -174,7 +164,7 @@ def lay_the_rail(mclevel):
     # make a lighting update list
     light_emit_list = []
     # x is 0 and z is 2 in the position list
-    position = [X, Y, Z]
+    position = [int(i) for i in mclevel.get_player_pos()]
     for total_dist in range(DISTANCE):
         x, y, z = position
         # find the existing height of the land
@@ -186,50 +176,59 @@ def lay_the_rail(mclevel):
         # place the rail bed
         set_block(x, y - 1, z, BEDINFO)
         # if the rail bed emits light, add it to the light_emit_list
-        if BEDMAT in LUMINANCE_DICT: light_emit_list += [(x, y, z)]
-        # place the lighting
-        if LIGHTSPACING and (total_dist % LIGHTSPACING == 0):
-            # copy the current position
-            side_pos = position[:]
-            # put it on the opposite side as the rail power
-            side_pos[SIDE_DIRECTION_AXIS] += -INCREMENT
-            # set the light block
-            set_block(side_pos[0], side_pos[1], side_pos[2], LIGHTINFO)
-            # add the light block to the light emit list
-            light_emit_list += [(side_pos[0], side_pos[1], side_pos[2])]
-            # move the position to the block below the light
-            side_pos[1] += -1
-            # and add a light support block
-            set_block(side_pos[0], side_pos[1], side_pos[2], BEDINFO)
+        #if BEDMAT in LUMINANCE_DICT: light_emit_list += [(x, y, z)]
+
         # place the rail
-        this_rail_data = RAIL_DATA
         if POWERSPACING and total_dist % POWERSPACING == 0:
             # set the rail value
-            rail_value = 27
+            rail_value = 'minecraft:powered_rail'
             # turn the rail on
-            this_rail_data += 8
             side_pos = position[:]
-            # place the redstone torch
-            side_pos[SIDE_DIRECTION_AXIS] += INCREMENT
-            set_block(side_pos[0], side_pos[1], side_pos[2], POWERINFO)
-            # add the torch to the lighting update list
-            light_emit_list += [(side_pos[0], side_pos[1], side_pos[2])]
-            # place the block supporting the redstone torch
-            side_pos[1] += -1
-            set_block(side_pos[0], side_pos[1], side_pos[2], BEDINFO)
+            # place the redstone
+            set_block(side_pos[0], side_pos[1] - 1, side_pos[2], POWERINFO)
         else:
             # place a normal rail block
-            rail_value = 66
-        rail_info = {'B': rail_value, 'D': this_rail_data}
+            rail_value = 'minecraft:rail'
+        rail_info['B'] = rail_value
         # actually place the rail block
         set_block(x, y, z, rail_info)
-        # place the tunnel or pillars
-        if surface_height > y:
+        # always clear the area above the rails
+        for cur_y in range(y + 1, y + TUNNELHEIGHT):
+            set_block(x, cur_y, z, AIRINFO)
+
+        # place the tunnel walls
+        if len(WALLOUTTHESE) > 0:
             # make a tunnel
             if VERBOSE:
                 print("Position " + str(position) + " is a tunnel")
-            for cur_y in range(y + 1, y + TUNNELHEIGHT):
-                set_block(x, cur_y, z, AIRINFO)
+            # check the top
+            coords_to_check = [(x,y+TUNNELHEIGHT,z)]
+            # check the sides
+            side_pos = position[:]
+            side_pos[SIDE_DIRECTION_AXIS] += -INCREMENT
+            coords_to_check += [(side_pos[0],iy,side_pos[2]) for iy in range(y, y + TUNNELHEIGHT)]
+            side_pos[SIDE_DIRECTION_AXIS] += INCREMENT * 2
+            coords_to_check += [(side_pos[0], iy, side_pos[2]) for iy in range(y, y + TUNNELHEIGHT)]
+
+            wallit = False
+            get_block = mclevel.block
+            for c in coords_to_check:
+                # get the block data
+                info = get_block(c[0],c[1],c[2])
+                if info is None: return None
+                blockstr = info['B'].replace('minecraft:', '')
+                if blockstr in WALLOUTTHESE:
+                    wallit = True
+                    break
+            # if you find anything that needs walling out
+            # build a tunnel
+            if wallit:
+                for c in coords_to_check:
+                    set_block(c[0],c[1],c[2],WALLINFO)
+
+        # place the pillars
+        if surface_height > y:
+            pass
         # if you don't make a tunnel, check if you need supports
         elif (surface_height < y - 2 and
               PILLARSPACING and
@@ -242,6 +241,22 @@ def lay_the_rail(mclevel):
         else:
             if VERBOSE:
                 print("Position " + str(position) + " is just normal")
+
+        # place the lighting
+        if LIGHTSPACING and (total_dist % LIGHTSPACING == 0):
+            # copy the current position
+            side_pos = position[:]
+            # put it on the opposite side as the rail power
+            side_pos[SIDE_DIRECTION_AXIS] += -INCREMENT
+            # set the light block
+            set_block(side_pos[0], side_pos[1], side_pos[2], LIGHTINFO)
+            # add the light block to the light emit list
+            # light_emit_list += [(side_pos[0], side_pos[1], side_pos[2])]
+            # move the position to the block below the light
+            side_pos[1] += -1
+            # and add a light support block
+            set_block(side_pos[0], side_pos[1], side_pos[2], BEDINFO)
+
         # increment position
         position[DIRECTION_AXIS] += INCREMENT
     # when we're all done, return the list of blocks that emit light
