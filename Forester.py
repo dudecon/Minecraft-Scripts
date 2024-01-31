@@ -18,8 +18,8 @@ TREECOUNT = 5
 # How large an area do you want the trees to be in?
 # for example, RADIUS = 10 will make place trees randomly in
 # a circular area 20 blocks wide.
-PLANT_CLEAR_RADIUS = 4
-PLANT_RING_WIDTH   = 3
+PLANT_CLEAR_RADIUS = 12
+PLANT_RING_WIDTH   = 7
 # NOTE: tree density will be higher in the center than at the edges,
 # unless you set INTERPOLATION to 'even' in the advanced section.
 
@@ -131,7 +131,7 @@ BRANCHDENSITY = 1.0
 # "hanging" will hang downward in air.  Good for "floating" type maps
 #    (I really miss "floating" terrain as a default option)
 # "no" roots will not be generated
-ROOTS = "tostone"
+ROOTS = "hanging"
 
 # Do you want root buttresses?
 # These make the trunk not-round at the base, seen in tropical or old trees.
@@ -158,7 +158,7 @@ FOLIAGEDENSITY = 1.0
 # Limit the tree height to the top of the map?
 # True the trees will not grow any higher than the top of the map
 # False the trees may be cut off by the top of the map
-MAPHEIGHTLIMIT = False
+MAPHEIGHTLIMIT = True
 
 # add lights in the middle of foliage clusters
 # for those huge trees that get so dark underneath
@@ -252,7 +252,7 @@ MIN_TREE_HEIGHT = 3
 # Do you want lots of text telling you waht is going on?
 # True lots of text (default). Good for debugging. Waits at the end.
 # False no text, a little faster. Closes when finished.
-VERBOSE = True
+VERBOSE = False
 
 # Do you want to hear about each individual tree?
 # True some text describing each tree generation.
@@ -1118,7 +1118,7 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist: list):
         if y_top is None:
             # this location is off the map!
             continue
-        if True: #y_top['B'] in PLANTON:
+        if y_top['B'].replace('minecraft:','') in PLANTON:
             # plant the tree on the block above the ground
             # hence the " + 1"
             y = y_top['y'] + 1
