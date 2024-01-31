@@ -19,18 +19,18 @@ LOAD_NAME = "TestB"
 # on level ground.
 # The script tries to match the mountain to the terrain, 
 # so the size will be much smaller on slopes.
-RADIUS = 15
+RADIUS = 26
 
 # How far into the sky do you want to move it?
 # default 15
-HEIGHT = 27
+HEIGHT = 29
 
 # How thick do you want the mountain?
 # This is a scalar
 # 1.0 is the default
 # 2.0 will make a very thick shard
 # 0.2 will make a thin shell, just a bit off the surface really
-DEPTH_SCALE = 1.7
+DEPTH_SCALE = 0.618
 
 #####################
 # Advanced options! #
@@ -101,10 +101,11 @@ class Square(object):
         blocktype = mclevel.block(x, self.y-1, z)
         blockstr = blocktype['B'].replace('minecraft:', '')
         if blockstr in mcInterface.blocktype_bark_logs:
-            self.growth = 1
+            self.a_log = True
         else:
-            # How much should the weight grow each step?
-            self.growth = 0
+            self.a_log = False
+        # How much should the weight grow each step?
+        self.growth = 0
         # How many squares are adjacent to this one?
         self.adjacent = 0
 
@@ -175,6 +176,11 @@ class FlyingMountain(object):
                     square = Square(self.save_file, cur_x, y, cur_z)
                     self.outside.update({loc_string: square})
                 square.adjacent += 1
+                if square.adjacent > 6:
+                    square.growth += 1.1
+                if square.a_log:
+                    # clobber the y value with the center square's y
+                    square.y = y
                 cur_y = square.y
                 if cur_y is None:
                     # this square does not exist in the map!
@@ -313,12 +319,8 @@ class FlyingMountain(object):
                     self.save_file.set_heightmap(x, new_height, z)
                 set_block(x, new_y, z, block_data)
                 set_block(x, this_y, z, air_block_data)
-            # correct the height map
-            old_height = self.save_file.get_heightmap(x, z)
-            new_height = old_height + this_depth - 1
-            if new_height > MAPTOP: new_height = MAPTOP
-            # no longer needed, as we set this on block assignment
-            # self.save_file.set_heightmap(x, new_height, z)
+            # correct the height maps
+            self.save_file.offset_all_heightmaps(x, z, HEIGHT)
             if VERBOSE:
                 print("Raised " + str(this_depth) + "blocks at " + str((x, z)))
 
@@ -367,7 +369,4 @@ if __name__ == '__main__':
     standalone()
 
 # Needed updates:
-# update the heightmaps
 # flood-fill trees and foliage
-# close single square islands?
-# fix log detection
