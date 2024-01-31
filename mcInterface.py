@@ -1084,15 +1084,27 @@ class SaveFile(object):
     def set_heightmap(self, blk_x, blk_y, blk_z, map_name='WORLD_SURFACE'):
         """Set the x, z value in the heightmap to y"""
         assert map_name in self.valid_heightmaps
-        data_list = self.all_height_data(blk_x, blk_z,)[map_name].payload
+        heightdata = self.all_height_data(blk_x, blk_z, )
+        if map_name in heightdata:
+            data_list = heightdata[map_name].payload
+        else:
+            return False
         pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
         old_bin = f'{data_list[pld_idx]:064b}'
-        bin_ins = f'{blk_y:09b}'
+        heightmap_y = blk_y + 64
+        bin_ins = f'{heightmap_y:09b}'
         if start == '': new_bin = bin_ins + eval(f'old_bin[{end}:]')
         elif end == '': new_bin = eval(f'old_bin[:{start}]') + bin_ins
         else: new_bin = eval(f'old_bin[:{start}]') + bin_ins + eval(f'old_bin[{end}:]')
         data_list[pld_idx] = int(new_bin, base=2)
         return True
+
+    def offset_all_heightmaps(self,blk_x, blk_z, offset):
+        '''offsets all the heightmap values by the offset value in the y direction'''
+        for heightmap_name in self.valid_heightmaps:
+            old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            new_y = old_y + offset
+            self.set_heightmap(blk_x, new_y, blk_z, heightmap_name)
 
     @staticmethod
     def new_palette_item(blocktype: str):
@@ -1573,4 +1585,3 @@ if __name__ == '__main__':
 # investigate the NbtTag10 code. Seems to be nesting recursively. 4 lvls down in the player position code. in data_ob?
 # actually not a problem, but maybe could remove the source data pointer from each object?
 
-# corrupted chunks on bitlength increment
