@@ -1,7 +1,7 @@
 # Minecraft-Scripts
 Python scripts for modifying Minecraft save files
 
-NOTE: These scripts are being updated to work on 1.16 and later save formats. Currently Forester, LineRail, and mcInterface are functional, with more being added soon.
+NOTE: These scripts are being updated to work on 1.16 and later save formats. Currently Forester, LineRail, WizardMountain, and mcInterface are functional, with more being added soon.
 
 Instructions:
 - You must have Python (3.x) installed, go get it if you don't http://www.python.org/download/.
