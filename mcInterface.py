@@ -1110,6 +1110,7 @@ class SaveFile(object):
         """offsets all the heightmap values by the offset value in the y direction"""
         for heightmap_name in self.valid_heightmaps:
             old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            if old_y is None: return None
             new_y = old_y + offset
             self.set_heightmap(blk_x, new_y, blk_z, heightmap_name)
 
@@ -1117,6 +1118,7 @@ class SaveFile(object):
         """sets all the heightmap values only if blk_y is greater than the current value"""
         for heightmap_name in self.valid_heightmaps:
             old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            if old_y is None: return None
             if old_y < blk_y:
                 self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
 
@@ -1124,6 +1126,7 @@ class SaveFile(object):
         """sets all the heightmap values only if blk_y is less than the current value"""
         for heightmap_name in self.valid_heightmaps:
             old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            if old_y is None: return None
             if old_y > blk_y:
                 self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
 
