@@ -241,7 +241,8 @@ def log_soft_column(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, bl
 
 def log_set_to_surface(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
     y_ht = mclevel.get_heightmap(x, z)
-    if y_start > y_ht: return
+    if y_ht is None: return None
+    if y_start > y_ht: return False
     # print(f"setting column to surface at {x}, {z} from {y_start} to {y_ht}")
     log_set_column(mclevel, x, y_start, y_ht, z, log, block_list, set_block, mat)
 
@@ -266,6 +267,7 @@ class SphereObject(object):
         set_block = mclevel.set_block
         block_list = []
         mat = self.mat
+        i = 0
         # flag for correcting the heightmap
         if mat['B'] in ('minecraft:air'):
             is_solid = False
@@ -306,6 +308,11 @@ class SphereObject(object):
                     x = loc_x + x_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
                     update_heightmaps(x, y_htmp, z)
+                if VERBOSE:
+                    i += 1
+                    if i > 700:
+                        i = 0
+                        print('.', end='', flush=True)
 
         if log:
             return block_list
@@ -535,7 +542,6 @@ def set_height(loc, mcmap: mcInterface.SaveFile):
         if y is None: return None
         if 'boulder' not in loc:
             depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
-            depth = min(y, depth)
             y += int(-depth)
             if y <= MAP_BOTTOM:
                 depth -= MAP_BOTTOM - y
