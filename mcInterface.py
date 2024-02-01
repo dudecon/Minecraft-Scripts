@@ -1091,13 +1091,17 @@ class SaveFile(object):
             return False
         pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
         old_bin = f'{data_list[pld_idx]:064b}'
-        heightmap_y = blk_y + 64
+        heightmap_y = int(blk_y + 64)
         bin_ins = f'{heightmap_y:09b}'
         if start == '': new_bin = bin_ins + eval(f'old_bin[{end}:]')
         elif end == '': new_bin = eval(f'old_bin[:{start}]') + bin_ins
         else: new_bin = eval(f'old_bin[:{start}]') + bin_ins + eval(f'old_bin[{end}:]')
         data_list[pld_idx] = int(new_bin, base=2)
         return True
+
+    def set_all_heightmaps(self,blk_x, blk_y, blk_z):
+        for heightmap_name in self.valid_heightmaps:
+            self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
 
     def offset_all_heightmaps(self,blk_x, blk_z, offset):
         '''offsets all the heightmap values by the offset value in the y direction'''
@@ -1385,7 +1389,7 @@ blocktype_soils = ('grass_block', 'dirt', 'coarse_dirt', 'podzol', 'mycelium', '
 blocktype_sands = ('gravel', 'sand', 'red_sand')
 
 # Stone Blocks
-blocktype_stones = ('stone', 'deepslate', 'granite', 'diorite', 'andesite', 'sandstone', 'red_sandstone',
+blocktype_stones = ('stone', 'cobblestone', 'mossy_cobblestone', 'deepslate', 'granite', 'diorite', 'andesite', 'sandstone', 'red_sandstone',
                     'calcite', 'tuff', 'dripstone_block', 'prismarine', 'obsidian', 'crying_obsidian',
                     'netherrack', 'blackstone', 'basalt', 'smooth_basalt', 'end_stone')
 # stairs
