@@ -1,4 +1,4 @@
-# Version 8
+# Version 9
 """This takes a base MineCraft level and adds boulders and craters.
 
 Written by Paul Spooner, with God's help.
@@ -10,15 +10,12 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
 
-LOAD_NAME = "Test"
+LOAD_NAME = "TestB"
 
 # How many boulders and/or craters do you want?
-FEATURE_NUM = 3
+FEATURE_NUM = 5
 
-# Where do you want the boulders/craters?
-# X, and Z are the map coordinates
-X = 260
-Z = 163
+# Boulders/craters are centered on the player's location
 
 # How large an area do you want them to be in?
 # for example, RADIUS = 10 will place them randomly in
@@ -32,7 +29,7 @@ RADIUS = 25
 BOULDERS = True
 
 # How big do you want the boulders to be?
-BOULDER_SIZE = 7
+BOULDER_SIZE = 6
 
 # How much would you like the size of the boulders to vary?
 # This value is a +- value, so with BOULDER_SIZE = 5
@@ -63,7 +60,7 @@ CRATERS = True
 # 3 times wider than they are tall
 # On uneven ground, however, this may vary
 # NOTE: larger values take MUCH longer to process.
-CRATER_DEPTH = 10
+CRATER_DEPTH = 12
 
 # How much should the crater size vary?
 # same principle as BOULDER_RANDOMIZATION
@@ -73,26 +70,33 @@ DEPTH_RANDOMIZATION = 5
 # Advanced options! #
 #####################
 
+# The following is an interface class for .mclevel data for minecraft save files.
+# The following also includes a useful coordinate to index convertor and several
+# other useful functions.
+
+import mcInterface
+
+# This is the end of the MCLevel interface.
+
+# Now, on to the actual code.
+
+from random import random, choice
+from math import sqrt, sin, cos, pi
+
+
 # What material would you like the boulders to be?
 # Uses the minecraft index number.
 # Default is 49 (Obsidian)
-BOULDER_MAT = 49
-
-# what data value should the boulders have?
-# defaults to 0
-BOULDER_DATA = 0
+boulder_mat_name = choice(mcInterface.blocktype_stones)
+BOULDER_INFO = {'B':'minecraft:' + boulder_mat_name}
 
 # In order, what do you want the common contents of the boulders to be?
 # only used when BOULDER_TREASURE is greater than zero
-# default: [16,15,14] (coal ore, iron ore, gold ore)
-TREASURE_LIST: list[int] = [16, 15, 14]
+TREASURE_LIST = ('coal_ore', 'redstone_ore', 'lapis_ore', 'iron_ore', 'gold_ore', 'copper_ore', 'deepslate_coal_ore', 'deepslate_redstone_ore', 'deepslate_lapis_ore', 'deepslate_iron_ore', 'deepslate_gold_ore', 'deepslate_copper_ore', 'nether_gold_ore', 'nether_quartz_ore')
 
 # A list of the rare contents of boulders.
 # The longer TREASURE_LIST is, the less often you will get one of these.
-# default: [11,49,41,42,57,56,56,74,89,87]
-# (lava, obsidian, gold block, iron block, diamond block,
-# diamond ore (2x), redstone ore, glowstone, netherrack) 
-TREASURE_RARE: list[int] = [11, 49, 41, 42, 57, 56, 56, 74, 89, 87]
+TREASURE_RARE = ('diamond_ore', 'emerald_ore', 'deepslate_diamond_ore', 'deepslate_emerald_ore', 'raw_iron_block', 'raw_gold_block', 'raw_copper_block')
 
 # What size should the crater excavation sphere be?
 # A multiple of the crater impact depth.
@@ -123,23 +127,6 @@ CRATER_EJECTA = True
 # Default 1.1
 EJECTA_DISTANCE = 1.1
 
-# Add surface blocks? How Much? (intended for fire)
-# any fractional value works here.
-# Examples:
-# 0 do not add surface blocks
-# 0.1 adds to 1/10th of the blocks (sparse)
-# 0.5 adds to half the blocks (thick)
-# 1.0 (or more) adds to all the blocks (complete)
-SURFACE_FRACTION = 0
-
-# What block type should the surface blocks be?
-# be sure to set SURFACE_FRACTION above as well.
-# Default is 51 (fire, makes a flaming crater!)
-SURFACE_MAT = 51
-
-# What data value should the surface blocks have?
-# defaults to 0
-SURFACE_DATA = 0
 
 # Fill the crater with stuff?
 # the value is the fraction of the crater depth (at the impact point)
@@ -149,23 +136,17 @@ SURFACE_DATA = 0
 # CRATER_DEPTH_DIAMETER_MULTIPLE make a full sphere of fill material
 # Default 0 (no fill)
 CRATER_FILL = 0.3
-# NOTE: fill will be overwritten by ejecta if fill material is
-# in the CRATER_DESTROYS list.
 
 # What material should the crater be filled with?
-# Defaults to 11 (lava!)
-FILL_MAT = 11
+FILL_INFO = {'B':'minecraft:' + 'magma_block'}
 
-# What data value should the fill blocks have?
-# defaults to 0
-FILL_DATA = 0
+# What materials should be displaced?
+# all other blocks will be destroyed
+# only applies when CRATER_EJECTA is active
 
-# What materials should be ignored by craters?
-# These materials will be destroyed rather than displaced.
-# a list of material index types.
-# default: {0,6,8,9,10,11,18,20,37,38,39,40,50,51,59,90}
-
-CRATER_DESTROYS = {0, 6, 8, 9, 10, 11, 18, 20, 37, 38, 39, 40, 50, 51, 59, 90}
+EJECTA_MATERIALS = (mcInterface.blocktype_stones + mcInterface.blocktype_soils +
+                    mcInterface.blocktype_sands + mcInterface.blocktype_all_logs +
+                    mcInterface.blocktype_bricks)
 
 # Do you want something to look at while the script is running?
 # True turns on lots of printouts on what the script is doing
@@ -208,25 +189,9 @@ if not (BOULDERS or CRATERS):
     print("wait, you want neither boulders nor craters?")
     print("Um, okay... doing nothing")
 
-# assemble the material dictionaries
-BOULDER_INFO = {'B': BOULDER_MAT, 'D': BOULDER_DATA}
-SURFACE_INFO = {'B': SURFACE_MAT, 'D': SURFACE_DATA}
-FILL_INFO = {'B': FILL_MAT, 'D': FILL_DATA}
+map_height: int = mcInterface.SaveFile.map_height
+map_bottom: int = mcInterface.SaveFile.map_bottom
 
-MAP_HEIGHT = 256
-
-# The following is an interface class for .mclevel data for minecraft save files.
-# The following also includes a useful coordinate to index convertor and several
-# other useful functions.
-
-import mcInterface
-
-# This is the end of the MCLevel interface.
-
-# Now, on to the actual code.
-
-from random import random, choice
-from math import sqrt, sin, cos, pi
 
 
 def get_heightmap(x, z, mclevel):
@@ -237,124 +202,28 @@ def get_heightmap(x, z, mclevel):
     return y
 
 
-def find_surface(x, y, z, mclevel: mcInterface.SaveFile):
-    # move the block up or down until you hit something permeable
-    # as defined in CRATER_DESTROYS
-    get_block = mclevel.block
-    # This is the upper limit of the search
-    map_y = get_heightmap(x, z, mclevel)
-    if map_y is None: return None
-    # if map_y < y:
-    #     direction = -1
-    #     y = map_y
-    y = min(map_y, y)
-    block_type = get_block(x, y, z)
-    if block_type in CRATER_DESTROYS:
-        direction = -1
-    else:
-        direction = 1
-    y += direction
-    rev = False
-    while True:
-        if y < 0:
-            direction = -1
-            y = 0
-        if y >= MAP_HEIGHT:
-            direction = 1
-            y = MAP_HEIGHT - 1
-        block_type = get_block(x, y, z)
-        if block_type is None: return None
-        if block_type in CRATER_DESTROYS:
-            # permeable
-            if direction == 1:
-                # permeable and moving up by 1
-                # we found it
-                break
-            elif direction > 0:
-                # moving up fast, so reverse
-                direction *= -1
-                rev = True
-            elif direction == -1 and y == 0:
-                return None
-        else:  # we're still in an impermeable zone
-            # impermeable
-            if direction < 0:
-                rev = True
-                # moving down, so reverse
-                direction *= -1
-            elif direction == 1 and y == MAP_HEIGHT - 1:
-                return None
-        if rev and direction != 1:
-            direction //= 2
-        elif not rev:
-            direction *= 2
-        y += direction
-    return y
-
-
-class PostEffect(object):
-    """keep track of which squares need to be re-lit, and then PostEffect them"""
-    save_file: mcInterface.SaveFile
-
-    def add(self, x, z):
-        coords = (x, z)
-        self.all_columns.add(coords)
-
-    def add_surface(self):
-        mclevel = self.save_file
-        set_block = mclevel.set_block
-        for column_coords in self.all_columns:
-            # randomly skip a fraction of the blocks
-            if random() > SURFACE_FRACTION: continue
-            # add surface blocks above the top block
-            x = column_coords[0]
-            z = column_coords[1]
-            # get the current heightmap
-            cur_height = get_heightmap(x, z, mclevel)
-            # find the true surface
-            y = find_surface(x, cur_height, z, mclevel)
-            if y is None: continue
-            # set the block
-            set_block(x, y, z, SURFACE_INFO)
-
-    def __init__(self):
-        self.all_columns = set()
-
-
-PostEffect_master = PostEffect()
-
-
 def log_set_block(mclevel, x, y, z, log, block_list, set_block, mat):
     if log:
-        block_value = mclevel.block(x, y, z, 'BD')
+        block_value = mclevel.block(x, y, z, True)
         if block_value is None: return
-        if block_value not in CRATER_DESTROYS:
+        mat_name = block_value['B'].replace('minecraft:','')
+        if mat_name in EJECTA_MATERIALS:
             data = {'x': x, 'y': y, 'z': z, 'data': block_value}
             block_list += [data]
     set_block(x, y, z, mat)
 
 
-def log_set_column(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat):
+def log_set_column(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
     # print(f"setting column at {x}, {z} from {y_start} to {y_end}")
     for y in range(int(y_start), int(y_end + 1)):
         log_set_block(mclevel, x, y, z, log, block_list, set_block, mat)
 
 
 def log_set_to_surface(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
-    y_ht = get_heightmap(x, z, mclevel)
-    if y_ht is None: return
-    # we don't actually want the "surface" for this
-    # y_ht = find_surface(x, y_ht, z, mclevel)
-    # if y_ht is None: return
-    bd = mclevel.block(x, y_ht, z)
-    while bd != 0:
-        y_ht += 1
-        if y_ht == MAP_HEIGHT: break
-        bd = mclevel.block(x, y_ht, z)
+    y_ht = mclevel.get_heightmap(x, z)
     if y_start > y_ht: return
     # print(f"setting column to surface at {x}, {z} from {y_start} to {y_ht}")
-    for y in range(int(y_start), y_ht):
-        log_set_block(mclevel, x, y, z, log, block_list, set_block, mat)
+    log_set_column(mclevel, x, y_start, y_ht, z, log, block_list, set_block, mat)
 
 
 class SphereObject(object):
@@ -377,6 +246,11 @@ class SphereObject(object):
         set_block = mclevel.set_block
         block_list = []
         mat = self.mat
+        # flag for correcting the heightmap
+        if mat['B'] == 'minecraft:air':
+            is_solid = False
+        else:
+            is_solid = True
         for z_off in range(int(radius + 1)):
             # pre-calculate the squared z distance
             sqr_dist_z = z_off ** 2
@@ -389,28 +263,27 @@ class SphereObject(object):
                               loc_y + self.bottom_offset, 0)
                 y_end = min(loc_y + radius + sqrt_dist,
                             loc_y + radius * 2 - self.top_offset + 1, MAP_HEIGHT)
+                if is_solid:
+                    y_htmp = y_end + 1
+                else:
+                    y_htmp = y_start
                 x = loc_x + x_off
                 z = loc_z + z_off
                 self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
+                mclevel.set_all_heightmaps(x, y_htmp, z)
                 if x_off > 0:
                     x = loc_x - x_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
+                    mclevel.set_all_heightmaps(x, y_htmp, z)
                 if z_off > 0:
                     z = loc_z - z_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
+                    mclevel.set_all_heightmaps(x, y_htmp, z)
                 if x_off > 0:
                     x = loc_x + x_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
+                    mclevel.set_all_heightmaps(x, y_htmp, z)
 
-        # set the columns to add post effects
-        if SURFACE_FRACTION:
-            for x in range(int(loc_x - radius),
-                           int(loc_x + radius + 1)):
-                for z in range(int(loc_z - radius),
-                               int(loc_z + radius + 1)):
-                    sqr_dist_2d = sqrt((loc_x - x) ** 2 + (loc_z - z) ** 2)
-                    if sqr_dist_2d > radius: continue
-                    PostEffect_master.add(x, z)
         if log:
             return block_list
         else:
@@ -421,7 +294,7 @@ class SphereObject(object):
         if location is None:
             location = {}
         if mat is None:
-            mat = {'B': 0, 'D': 0}
+            mat = {'B': 'minecraft:air'}
         self.loc = location
         # self.size is the diameter of the sphere
         self.size = size
@@ -452,15 +325,15 @@ class Boulder(SphereObject):
                 if i == num_treasure:
                     break
             if i == -1:
-                return
+                return blocklog
             elif i < num_treasure:
                 coremat = TREASURE_LIST[i]
             else:
                 coremat = choice(TREASURE_RARE)
 
-            core = SphereObject(coreloc, {'B': coremat, 'D': 0}, coresize)
+            core = SphereObject(coreloc, {'B': 'minecraft:' + coremat}, coresize)
             core.create(mclevel)
-        if log: return blocklog
+        return blocklog
 
     def __init__(self, location=None, mat=None, size=-1.0):
         SphereObject.__init__(self, location=location, mat=mat, size=size)
@@ -532,7 +405,7 @@ class Crater(SphereObject):
         x += choice(random_locs)
         z += choice(random_locs)
         # Find the location on the surface
-        y = find_surface(x, y, z, mclevel)
+        y = mclevel.get_heightmap(x, z)
         if y is None: return None
         # slide downhill, away from the center of the crater
         # set up the kick values
@@ -548,7 +421,7 @@ class Crater(SphereObject):
         while True:
             new_x += x_kick + choice(rand_kick)
             new_z += z_kick + choice(rand_kick)
-            new_y = find_surface(new_x, y, new_z, mclevel)
+            new_y = mclevel.get_heightmap(new_x, new_z)
             if new_y is None: return None
             if new_y >= y: break
             x = new_x
@@ -556,10 +429,10 @@ class Crater(SphereObject):
             z = new_z
         # assign the block
         result = mclevel.set_block(x, y, z, block['data'])
-        if SURFACE_FRACTION:
-            PostEffect_master.add(x, z)
-        for crd in ('x', 'y', 'z'):
-            exec(f'block["{crd}"] = {crd}')
+        mclevel.set_all_heightmaps(x, y+1, z)
+        block['x'] = x
+        block['y'] = y
+        block['z'] = z
         return result
 
     def create(self, mclevel, log=False):
@@ -598,6 +471,10 @@ def selectlocations(mcmap):
     """return a list of locations to put the objects on the surface of the map.
     """
     assert isinstance(mcmap, mcInterface.SaveFile)
+    player_pos = mcmap.get_player_pos()
+    position = [int(i) for i in player_pos]
+    X = position[0]
+    Z = position[2]
     featurelocs = []
     if VERBOSE: print('Locations: x, y, z')
     while len(featurelocs) < FEATURE_NUM:
@@ -619,7 +496,6 @@ def selectlocations(mcmap):
     return featurelocs
 
 
-# noinspection PyTypeChecker
 def set_height(loc, mcmap: mcInterface.SaveFile):
     # loc = {x, ~y (top) update, z, ~depth}
     y_top = loc['y']
@@ -631,7 +507,7 @@ def set_height(loc, mcmap: mcInterface.SaveFile):
             ychoices += [i for i in range(y_top + 1, MAP_HEIGHT)]
         y = choice(ychoices)
     else:
-        y = find_surface(loc['x'], y_top, loc['z'], mcmap)
+        y = get_heightmap(loc['x'], loc['z'],mcmap)
         if y is None: return None
         if 'boulder' not in loc:
             depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
@@ -688,10 +564,6 @@ def standalone():
     global MAP_HEIGHT
     MAP_HEIGHT = the_map.map_height + 1
     main(the_map)
-    PostEffect_master.save_file = the_map
-    if SURFACE_FRACTION:
-        print("Adding surface blocks")
-        PostEffect_master.add_surface()
     print("Saving the map (takes a bit)")
     the_map.write()
     if VERBOSE:
