@@ -1010,6 +1010,7 @@ class SaveFile(object):
         assert map_name in self.valid_heightmaps
         # map the list storing the height map
         heightdata = self.all_height_data(blk_x, blk_z,)
+        if heightdata is None: return None
         if map_name in heightdata:
             data_list = heightdata[map_name].payload
         else:
@@ -1100,15 +1101,31 @@ class SaveFile(object):
         return True
 
     def set_all_heightmaps(self,blk_x, blk_y, blk_z):
+        # don't use this particularly often, it lends itself to abuse
         for heightmap_name in self.valid_heightmaps:
             self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
 
+
     def offset_all_heightmaps(self,blk_x, blk_z, offset):
-        '''offsets all the heightmap values by the offset value in the y direction'''
+        """offsets all the heightmap values by the offset value in the y direction"""
         for heightmap_name in self.valid_heightmaps:
             old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
             new_y = old_y + offset
             self.set_heightmap(blk_x, new_y, blk_z, heightmap_name)
+
+    def increase_all_heightmaps(self,blk_x, blk_y, blk_z):
+        """sets all the heightmap values only if blk_y is greater than the current value"""
+        for heightmap_name in self.valid_heightmaps:
+            old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            if old_y < blk_y:
+                self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
+
+    def decrease_all_heightmaps(self,blk_x, blk_y, blk_z):
+        """sets all the heightmap values only if blk_y is less than the current value"""
+        for heightmap_name in self.valid_heightmaps:
+            old_y = self.get_heightmap(blk_x, blk_z, heightmap_name)
+            if old_y > blk_y:
+                self.set_heightmap(blk_x, blk_y, blk_z, heightmap_name)
 
     @staticmethod
     def new_palette_item(blocktype: str):
