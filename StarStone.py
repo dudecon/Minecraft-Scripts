@@ -13,14 +13,14 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 LOAD_NAME = "TestB"
 
 # How many boulders and/or craters do you want?
-FEATURE_NUM = 5
+FEATURE_NUM = 1
 
 # Boulders/craters are centered on the player's location
 
 # How large an area do you want them to be in?
 # for example, RADIUS = 10 will place them randomly in
 # a circular area 20 blocks wide.
-RADIUS = 25
+RADIUS = 2
 # NOTE: density will be higher in the center than at the edges.
 
 # If you want boulders, set this to True, otherwise, set it to False
@@ -29,13 +29,13 @@ RADIUS = 25
 BOULDERS = True
 
 # How big do you want the boulders to be?
-BOULDER_SIZE = 6
+BOULDER_SIZE = 36
 
 # How much would you like the size of the boulders to vary?
 # This value is a +- value, so with BOULDER_SIZE = 5
 # and BOULDER_RANDOMIZATION = 3, the boulder size will range
 # from 2 to 8
-BOULDER_RANDOMIZATION = 3
+BOULDER_RANDOMIZATION = 2
 
 # Should boulders occasionally have treasure inside?  Ore, gold, diamond?
 # Set to a number between 0 and 1 for some treasure.  Larger numbers creates
@@ -60,11 +60,11 @@ CRATERS = True
 # 3 times wider than they are tall
 # On uneven ground, however, this may vary
 # NOTE: larger values take MUCH longer to process.
-CRATER_DEPTH = 12
+CRATER_DEPTH = 800
 
 # How much should the crater size vary?
 # same principle as BOULDER_RANDOMIZATION
-DEPTH_RANDOMIZATION = 5
+DEPTH_RANDOMIZATION = 3
 
 #####################
 # Advanced options! #
@@ -110,7 +110,7 @@ TREASURE_RARE = ('diamond_ore', 'emerald_ore', 'deepslate_diamond_ore', 'deepsla
 # NOTE: okay, maybe a little funny. Heh. Heheh; Such a big crater.
 # NOTE: larger values take MUCH longer to process.
 # Default 5
-CRATER_DEPTH_DIAMETER_MULTIPLE = 5
+CRATER_DEPTH_DIAMETER_MULTIPLE = 5.8
 
 # Keep track of crater ejecta?
 # This option can take a while on larger craters, but looks really cool!
@@ -135,7 +135,7 @@ EJECTA_DISTANCE = 1.1
 # 1.0 fill the crater up to the brim (may overflow on slopes)
 # CRATER_DEPTH_DIAMETER_MULTIPLE make a full sphere of fill material
 # Default 0 (no fill)
-CRATER_FILL = 0.3
+CRATER_FILL = 0
 
 # What material should the crater be filled with?
 FILL_INFO = {'B':'minecraft:' + 'magma_block'}
@@ -189,12 +189,12 @@ if not (BOULDERS or CRATERS):
     print("wait, you want neither boulders nor craters?")
     print("Um, okay... doing nothing")
 
-map_height: int = mcInterface.SaveFile.map_height
-map_bottom: int = mcInterface.SaveFile.map_bottom
+MAP_HEIGHT: int = mcInterface.SaveFile.map_height
+MAP_BOTTOM: int = mcInterface.SaveFile.map_bottom
 
 
 
-def get_heightmap(x, z, mclevel):
+def get_solid_surface(x, z, mclevel):
     hmnl = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
     hmof = mclevel.get_heightmap(x, z, "OCEAN_FLOOR")
     if (hmnl is None) or (hmof is None): return None
@@ -212,11 +212,31 @@ def log_set_block(mclevel, x, y, z, log, block_list, set_block, mat):
             block_list += [data]
     set_block(x, y, z, mat)
 
+def log_soft_block(mclevel, x, y, z, log, block_list, set_block, mat):
+    block_value = mclevel.block(x, y, z, log)
+    if block_value is None: return
+    mat_name = block_value['B'].replace('minecraft:','')
+    if mat_name in EJECTA_MATERIALS and log:
+        data = {'x': x, 'y': y, 'z': z, 'data': block_value}
+        block_list += [data]
+    if mat_name == 'air':
+        set_block(x, y, z, mat)
+    else:
+        pass
+
 
 def log_set_column(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
     # print(f"setting column at {x}, {z} from {y_start} to {y_end}")
     for y in range(int(y_start), int(y_end + 1)):
         log_set_block(mclevel, x, y, z, log, block_list, set_block, mat)
+
+def log_soft_column(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
+    """only sets the block if the current value is air"""
+    # print(f"setting column at {x}, {z} from {y_start} to {y_end}")
+    surface_y = get_solid_surface(x, z, mclevel)
+    bottom_y = min(y_start, surface_y)
+    for y in range(int(bottom_y), int(y_end + 1)):
+        log_soft_block(mclevel, x, y, z, log, block_list, set_block, mat)
 
 
 def log_set_to_surface(mclevel: mcInterface.SaveFile, x, y_start, y_end, z, log, block_list, set_block, mat):
@@ -247,7 +267,7 @@ class SphereObject(object):
         block_list = []
         mat = self.mat
         # flag for correcting the heightmap
-        if mat['B'] == 'minecraft:air':
+        if mat['B'] in ('minecraft:air'):
             is_solid = False
         else:
             is_solid = True
@@ -260,29 +280,32 @@ class SphereObject(object):
                     continue
                 sqrt_dist = sqrt(rad_sqr - sqr_dist_2d)
                 y_start = max(loc_y + radius - sqrt_dist,
-                              loc_y + self.bottom_offset, 0)
+                              loc_y + self.bottom_offset, MAP_BOTTOM)
                 y_end = min(loc_y + radius + sqrt_dist,
                             loc_y + radius * 2 - self.top_offset + 1, MAP_HEIGHT)
+                if y_end < y_start: break
                 if is_solid:
                     y_htmp = y_end + 1
+                    update_heightmaps = mclevel.increase_all_heightmaps
                 else:
                     y_htmp = y_start
+                    update_heightmaps = mclevel.decrease_all_heightmaps
                 x = loc_x + x_off
                 z = loc_z + z_off
                 self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
-                mclevel.set_all_heightmaps(x, y_htmp, z)
+                update_heightmaps(x, y_htmp, z)
                 if x_off > 0:
                     x = loc_x - x_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
-                    mclevel.set_all_heightmaps(x, y_htmp, z)
+                    update_heightmaps(x, y_htmp, z)
                 if z_off > 0:
                     z = loc_z - z_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
-                    mclevel.set_all_heightmaps(x, y_htmp, z)
+                    update_heightmaps(x, y_htmp, z)
                 if x_off > 0:
                     x = loc_x + x_off
                     self.set_col(mclevel, x, y_start, y_end, z, log, block_list, set_block, mat)
-                    mclevel.set_all_heightmaps(x, y_htmp, z)
+                    update_heightmaps(x, y_htmp, z)
 
         if log:
             return block_list
@@ -405,7 +428,7 @@ class Crater(SphereObject):
         x += choice(random_locs)
         z += choice(random_locs)
         # Find the location on the surface
-        y = mclevel.get_heightmap(x, z)
+        y = get_solid_surface(x, z, mclevel)
         if y is None: return None
         # slide downhill, away from the center of the crater
         # set up the kick values
@@ -421,7 +444,7 @@ class Crater(SphereObject):
         while True:
             new_x += x_kick + choice(rand_kick)
             new_z += z_kick + choice(rand_kick)
-            new_y = mclevel.get_heightmap(new_x, new_z)
+            new_y = get_solid_surface(new_x, new_z, mclevel)
             if new_y is None: return None
             if new_y >= y: break
             x = new_x
@@ -429,7 +452,7 @@ class Crater(SphereObject):
             z = new_z
         # assign the block
         result = mclevel.set_block(x, y, z, block['data'])
-        mclevel.set_all_heightmaps(x, y+1, z)
+        mclevel.increase_all_heightmaps(x, y+1, z)
         block['x'] = x
         block['y'] = y
         block['z'] = z
@@ -439,18 +462,6 @@ class Crater(SphereObject):
         # excevate the crater
         # log the materials displaced if necessary
         block_log = SphereObject.create(self, mclevel, log=CRATER_EJECTA)
-        # fill the crater, if necessary
-        if CRATER_FILL:
-            if VERBOSE: print('filling crater')
-            fillsize = self.size
-            fillloc = self.loc.copy()
-            filldepth = self.depth * CRATER_FILL
-            fill_object = SphereObject(fillloc, FILL_INFO, fillsize)
-            # the top offset will equal the sphere size (diameter)
-            # minus the intended depth
-            offset = int(fillsize - filldepth)
-            fill_object.top_offset = offset
-            fill_object.create(mclevel)
         # displace each block in the log
         if CRATER_EJECTA:
             if VERBOSE:
@@ -464,6 +475,19 @@ class Crater(SphereObject):
                         i = 0
                         print('.', end='', flush=True)
             if VERBOSE: print("")
+        # fill the crater, if necessary
+        if CRATER_FILL:
+            if VERBOSE: print('filling crater')
+            fillsize = self.size
+            fillloc = self.loc.copy()
+            filldepth = self.depth * CRATER_FILL
+            fill_object = SphereObject(fillloc, FILL_INFO, fillsize)
+            # the top offset will equal the sphere size (diameter)
+            # minus the intended depth
+            offset = int(fillsize - filldepth)
+            fill_object.top_offset = offset
+            fill_object.set_col = log_soft_column
+            fill_object.create(mclevel)
         if log: return block_log
 
 
@@ -486,7 +510,7 @@ def selectlocations(mcmap):
         x = X + int(rad * sin(ang) + .5)
         z = Z + int(rad * cos(ang) + .5)
         # check to see if this location is suitable
-        y_top = get_heightmap(x, z, mcmap)
+        y_top = get_solid_surface(x, z, mcmap)
         if y_top is None:
             # this location is off the map!
             # Try somewhere else
@@ -502,17 +526,20 @@ def set_height(loc, mcmap: mcInterface.SaveFile):
     if not CRATERS:
         ychoices = [y_top]
         if BURIED_BOULDERS:
-            ychoices += [i for i in range(0, y_top)]
+            ychoices += [i for i in range(MAP_BOTTOM, y_top)]
         if FLYING_BOULDERS:
             ychoices += [i for i in range(y_top + 1, MAP_HEIGHT)]
         y = choice(ychoices)
     else:
-        y = get_heightmap(loc['x'], loc['z'],mcmap)
+        y = get_solid_surface(loc['x'], loc['z'],mcmap)
         if y is None: return None
         if 'boulder' not in loc:
             depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
             depth = min(y, depth)
             y += int(-depth)
+            if y <= MAP_BOTTOM:
+                depth -= MAP_BOTTOM - y
+                y = MAP_BOTTOM
             loc['depth'] = depth
     loc['y'] = y
 
@@ -561,8 +588,6 @@ def standalone():
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
-    global MAP_HEIGHT
-    MAP_HEIGHT = the_map.map_height + 1
     main(the_map)
     print("Saving the map (takes a bit)")
     the_map.write()
