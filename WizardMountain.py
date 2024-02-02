@@ -19,7 +19,7 @@ LOAD_NAME = "TestB"
 # on level ground.
 # The script tries to match the mountain to the terrain, 
 # so the size will be much smaller on slopes.
-RADIUS = 26
+RADIUS = 18
 
 # How far into the sky do you want to move it?
 # default 15
@@ -30,7 +30,7 @@ HEIGHT = 29
 # 1.0 is the default
 # 2.0 will make a very thick shard
 # 0.2 will make a thin shell, just a bit off the surface really
-DEPTH_SCALE = 0.618
+DEPTH_SCALE = 1.0
 
 #####################
 # Advanced options! #
@@ -88,13 +88,38 @@ MAPBTM = mcInterface.SaveFile.map_bottom
 from random import random
 from math import sqrt
 
+def loc_to_coords(loc):
+    """Take a location string and return the x z location"""
+    loc_list = loc.split()
+    x = int(loc_list[0])
+    z = int(loc_list[1])
+    return x, z
+
+def coords_to_loc(coords):
+    """Take an x,z coordinate pair and return the location string"""
+    x = str(coords[0])
+    z = str(coords[1])
+    loc_str = x + ' ' + z
+    return loc_str
+
 class Square(object):
     """a single square that knows about itself"""
 
-    def __init__(self, mclevel, x, y, z):
+    def __init__(self, mclevel, x, z):
         self.x = x
         self.y = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
         self.z = z
+        self.adj_sqares = (tuple(coords_to_loc((x, zi)) for zi in (z - 1, z + 1)) +
+                           tuple(coords_to_loc((xi, z)) for xi in (x - 1, x + 1)) +
+                           tuple(coords_to_loc(c) for c in
+                                 ((x - 1, z + 1), (x - 1, z - 1), (x + 1, z + 1), (x + 1, z - 1))))
+        # precompute the radius, since it should never change
+        if hasattr(self, 'origin'):
+            delta_x = abs(x - self.origin.x)
+            delta_z = abs(z - self.origin.z)
+            self.this_radius = sqrt(delta_x ** 2 + delta_z ** 2)
+        else:
+            self.this_radius = 0
         # what is the current weight of the square?
         # Squares grow when they reach zero weight
         self.weight = -1.0
@@ -137,81 +162,68 @@ class FlyingMountain(object):
     conform to the surface."""
     save_file: mcInterface.SaveFile
 
-    @staticmethod
-    def loc_to_coords(loc):
-        """Take a location string and return the x z location"""
-        loc_list = loc.split()
-        x = int(loc_list[0])
-        z = int(loc_list[1])
-        return x, z
-
-    @staticmethod
-    def coords_to_loc(coords):
-        """Take an x,z coordinate pair and return the location string"""
-        x = str(coords[0])
-        z = str(coords[1])
-        loc_str = x + ' ' + z
-        return loc_str
-
     def add_adjacent(self, center_square):
         x = center_square.x
         y = center_square.y
         z = center_square.z
-        for cur_x in (x - 1, x, x + 1):
-            for cur_z in (z - 1, z, z + 1):
-                # don't update the center square
-                if cur_x == x and cur_z == z: continue
-                # find the key string for this square
-                loc_string = self.coords_to_loc((cur_x, cur_z))
-                if loc_string in self.interior:
-                    # if it's already in the interior,
-                    square = self.interior[loc_string]
-                elif loc_string in self.outside:
-                    # if it's already in the outside list
-                    square = self.outside[loc_string]
-                # or it's not listed in the dictionary, and needs to be created
-                else:
-                    # this square is not in any square lists
-                    # make a new square and add it to the outside
-                    square = Square(self.save_file, cur_x, y, cur_z)
-                    self.outside.update({loc_string: square})
-                square.adjacent += 1
-                if square.adjacent > 6:
-                    square.growth += 1.1
-                if square.a_log:
-                    # clobber the y value with the center square's y
-                    square.y = y
-                cur_y = square.y
-                if cur_y is None:
-                    # this square does not exist in the map!
-                    # don't add growth or anything
-                    continue
-                height_diff = abs(y - cur_y)
-                if height_diff == 0:
-                    # if the heights are nearly the same, 
-                    # one step will grow along this direction.
-                    added_growth = 1
-                elif height_diff > MAXVERTICALGAP:
-                    # the heights are too far apart, don't contribute to growth
-                    # at all.
-                    added_growth = 0
-                else:
-                    # this is a magic value!
-                    # larger differences in height mean smaller growth
-                    # contributed by this square
-                    added_growth = 1 / (height_diff * 8.0)
-                # add the extra growth to this square
-                square.growth += added_growth
+        for loc_string in center_square.adj_sqares:
+            cur_x, cur_z = loc_to_coords(loc_string)
+            if loc_string in self.interior:
+                # if it's already in the interior,
+                square = self.interior[loc_string]
+            elif loc_string in self.outside:
+                # if it's already in the outside list
+                square = self.outside[loc_string]
+            # or it's not listed in the dictionary, and needs to be created
+            else:
+                # this square is not in any square lists
+                # make a new square and add it to the outside
+                square = Square(self.save_file, cur_x, cur_z)
+                self.outside.update({loc_string: square})
+            square.adjacent += 1
+            if square.adjacent == 6:
+                # automatically upgrade squares that are almost fully enclosed
+                square.growth += 1
+            if square.a_log:
+                # clobber the y value with the center square's y
+                square.y = y
+            cur_y = square.y
+            if cur_y is None:
+                # this square does not exist in the map!
+                # don't add growth or anything
+                continue
+            height_diff = abs(y - cur_y)
+            if height_diff == 0:
+                # if the heights are the same,
+                # one step will grow along this direction.
+                added_growth = 0.4714
+            elif height_diff > MAXVERTICALGAP:
+                # the heights are too far apart, don't contribute to growth
+                # at all.
+                added_growth = 0
+            else:
+                # this is a magic value!
+                # larger differences in height mean smaller growth
+                # contributed by this square
+                added_growth = (1 + MAXVERTICALGAP - height_diff) / (1 + MAXVERTICALGAP * 4.5)
+            # add the extra growth to this square
+            if (x != cur_x) and (z != cur_z):
+                added_growth /= 1.41421
+            square.growth += added_growth
 
     def grow_square(self, square):
         upgrade_to_interior = square.grow()
         # if the square doesn't graduate, skip the rest
         if not upgrade_to_interior: return None
-        # if you got here, the square belongs inside!
         # find the location string for this square
         x = square.x
         z = square.z
-        loc_string = self.coords_to_loc((x, z))
+        # check that it is within RADIUS
+        if square.this_radius > RADIUS:
+            # the square is too far from the center
+            return None
+        # if you got here, the square belongs inside!
+        loc_string = coords_to_loc((x, z))
         # add the square to the appropriate list
         self.interior.update({loc_string: square})
         # remove the current square from the exterior
@@ -222,7 +234,7 @@ class FlyingMountain(object):
     def grow_all(self):
         """Grow each of the squares"""
         # make a static list of the border squares
-        ext_squares = [sqr for sqr in self.outside.values()]
+        ext_squares = tuple(sqr for sqr in self.outside.values())
         # for each border square, grow it
         for square in ext_squares:
             self.grow_square(square)
@@ -230,36 +242,32 @@ class FlyingMountain(object):
         for square in self.interior.values():
             square.grow()
 
-    def origin_square(self, x, y, z):
+    def origin_square(self, x, z):
         """Add a square to the map as a fullly weighted square"""
         # check to see if this square is already in the lists
-        loc_string = self.coords_to_loc((x, z))
+        loc_string = coords_to_loc((x, z))
         if loc_string in self.interior:
             square = self.interior[loc_string]
         elif loc_string in self.outside:
             square = self.outside[loc_string]
         else:
             # insert a new square
-            square = Square(self.save_file, x, y, z)
+            square = Square(self.save_file, x, z)
             # add the square to the outside list
             self.outside.update({loc_string: square})
             # check if adjacent squares are weighted
             # if so, add adjacency to this one
-            for cur_x in (x - 1, x, x + 1):
-                for cur_z in (z - 1, z, z + 1):
-                    # don't update the center square
-                    if cur_x == x and cur_z == z: continue
-                    # find the key string for this square
-                    loc_string = self.coords_to_loc((cur_x, cur_z))
-                    if loc_string in self.interior:
-                        square.adjacent += 1
+            for loc_string in square.adj_sqares:
+                cur_x, cur_z = loc_to_coords(loc_string)
+                if loc_string in self.interior:
+                    square.adjacent += 1
         # set a positive weight, forcing this square to grow
         square.weight = -.1
         square.growth = .11
         # grow the square
         # this should move it to the border or interior list
-        self.grow_square(square)
         self.origin = square
+        self.grow_square(square)
 
     def __init__(self, save_file: mcInterface.SaveFile):
         self.save_file = save_file
@@ -273,7 +281,7 @@ class FlyingMountain(object):
         set_block = self.save_file.set_block
         origin_weight = self.origin.weight
         # the scaling factor is based on the origin_weight
-        depth_scale = 6 / origin_weight
+        depth_scale = 9 / origin_weight
         # print(len(self.interior))
         # print(len(self.outside))
         # Default "air" block
@@ -283,17 +291,10 @@ class FlyingMountain(object):
             if y is None: continue
             x = square.x
             z = square.z
-            # check that it is within RADIUS
-            delta_x = abs(x - self.origin.x)
-            delta_z = abs(z - self.origin.z)
-            this_radius = sqrt(delta_x ** 2 + delta_z ** 2)
-            if this_radius == 0: this_radius = 1.0
-            if this_radius > (RADIUS + 1):
-                # the square is too far from the center
-                continue
             # make the appropriate depth
-            this_depth = int(DEPTH_SCALE * (depth_scale * square.weight +
-                                            (RADIUS - this_radius) * 0.618 + 1.5 + random() * 3))
+            this_depth = int(DEPTH_SCALE * (
+                    (depth_scale * square.weight * (RADIUS - square.this_radius)/RADIUS ) +
+                    0.1 + random() * 3))
             # add one for the vertical offset of find_surface
             # add one for the missing endpiece in range()
             # add DEPTHOFFSET for the people who want it
@@ -330,11 +331,11 @@ def main(the_map: mcInterface.SaveFile):
     """
     print("Finding the mountain")
     player_pos = the_map.get_player_pos()
-    position = [int(i) for i in player_pos]
+    position = the_map.get_player_block()
     newplayerpos = {'y': player_pos[1] + HEIGHT}
     the_map.set_player_pos(newplayerpos)
     mont = FlyingMountain(the_map)
-    mont.origin_square(position[0], MAPTOP, position[2])
+    mont.origin_square(position[0], position[2])
     for i in range(RADIUS):
         mont.grow_all()
         if VERBOSE:
