@@ -18,10 +18,10 @@ LOADNAME = "TestB"
 # '-X' will go in the negative x direction
 # '+Z' will go in the positive z direction
 # '-Z' will go in the negative z direction
-DIRECTION = '-Z'
+DIRECTION = '+X'
 
 # How far do you want the rail to go?
-DISTANCE = 77999999
+DISTANCE = 20
 
 # How tall do you want the tunnels?
 # This includes the rail block.
@@ -164,7 +164,7 @@ def lay_the_rail(mclevel):
     # make a lighting update list
     light_emit_list = []
     # x is 0 and z is 2 in the position list
-    position = [int(i) for i in mclevel.get_player_pos()]
+    position = [int(i) for i in mclevel.get_player_block()]
     for total_dist in range(DISTANCE):
         x, y, z = position
         # find the existing height of the land
