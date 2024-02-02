@@ -898,7 +898,7 @@ class SaveFile(object):
             section = sections[idx].payload
         else:
             # no section means the block is air
-            return idx, sections, None
+            return 0, sections, None
         # Grab the pallete, we need it later, and also now
         if 'block_states' in section:
             block_states = section['block_states'].payload
@@ -972,54 +972,6 @@ class SaveFile(object):
                 block_data[propert] = props[propert].payload
         return block_data
 
-    def all_height_data(self, blk_x, blk_z):
-        # get the chunk
-        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
-        # if the chunk doesn't exist, return None
-        if this_chunk is None:
-            return None
-        data_list = this_chunk.tags[0].payload["Heightmaps"].payload
-        return data_list
-
-    @staticmethod
-    def heightmap_pli_st_ed(blk_x, blk_z, stride=9):
-        # find the location index, based on the coordinates
-        # note the reversed coordinate ordering
-        offset = (blk_x % 16) + (blk_z % 16) * 16
-        pld_idx = offset // 7
-        bin_idx = offset % 7
-        if bin_idx == 0:
-            start = '-9'
-            end = ''
-        elif bin_idx == 6:
-            start = ''
-            end = '-54'
-        else:
-            start = str((bin_idx + 1) * -stride)
-            end = str(bin_idx * -stride)
-        return pld_idx, start, end
-
-    valid_heightmaps = {"WORLD_SURFACE",
-                        "MOTION_BLOCKING",
-                        "MOTION_BLOCKING_NO_LEAVES",
-                        "OCEAN_FLOOR"}
-
-    def get_heightmap(self, blk_x, blk_z, map_name='WORLD_SURFACE'):
-        """Return the y value of the heightmap at coordinates x, z.
-        """
-        assert map_name in self.valid_heightmaps
-        # map the list storing the height map
-        heightdata = self.all_height_data(blk_x, blk_z,)
-        if heightdata is None: return None
-        if map_name in heightdata:
-            data_list = heightdata[map_name].payload
-        else:
-            return None
-        pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
-        bin_str = f'{data_list[pld_idx]:064b}'
-        # the data value stores the highest non-air block
-        y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2) - 64
-        return y_ht
 
     def get_map_data(self):
         """returns a dictionary which is the mutable map data. Change and save to update."""
@@ -1037,6 +989,15 @@ class SaveFile(object):
         pos_data = self.get_player()['Pos'].payload
         pos = [pos_data[i].payload for i in range(3)]
         return pos
+
+    def get_player_block(self):
+        pos_float =  self.get_player_pos()
+        for k,i in enumerate(pos_float):
+            if i < 0:
+                pos_float[k] -= 1
+        pos_int = [int(i) for i in pos_float]
+        return pos_int
+
 
     def set_player_pos(self, pos):
         pos_data = self.get_player()['Pos'].payload
@@ -1081,6 +1042,57 @@ class SaveFile(object):
         if chest is not None:
             return chest['Items'].payload
         return None
+
+
+    def all_height_data(self, blk_x, blk_z):
+        # get the chunk
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        # if the chunk doesn't exist, return None
+        if this_chunk is None:
+            return None
+        data_list = this_chunk.tags[0].payload["Heightmaps"].payload
+        return data_list
+
+    @staticmethod
+    def heightmap_pli_st_ed(blk_x, blk_z, stride=9):
+        # find the location index, based on the coordinates
+        # note the reversed coordinate ordering
+        offset = (blk_x % 16) + (blk_z % 16) * 16
+        pld_idx = offset // 7
+        bin_idx = offset % 7
+        if bin_idx == 0:
+            start = '-9'
+            end = ''
+        elif bin_idx == 6:
+            start = ''
+            end = '-54'
+        else:
+            start = str((bin_idx + 1) * -stride)
+            end = str(bin_idx * -stride)
+        return pld_idx, start, end
+
+
+    valid_heightmaps = {"WORLD_SURFACE",
+                        "MOTION_BLOCKING",
+                        "MOTION_BLOCKING_NO_LEAVES",
+                        "OCEAN_FLOOR"}
+
+    def get_heightmap(self, blk_x, blk_z, map_name='WORLD_SURFACE'):
+        """Return the y value of the heightmap at coordinates x, z.
+        """
+        assert map_name in self.valid_heightmaps
+        # map the list storing the height map
+        heightdata = self.all_height_data(blk_x, blk_z, )
+        if heightdata is None: return None
+        if map_name in heightdata:
+            data_list = heightdata[map_name].payload
+        else:
+            return None
+        pld_idx, start, end = self.heightmap_pli_st_ed(blk_x, blk_z)
+        bin_str = f'{data_list[pld_idx]:064b}'
+        # the data value stores the highest non-air block
+        y_ht = int(eval(f'bin_str[{start}:{end}]'), base=2) - 64
+        return y_ht
 
     def set_heightmap(self, blk_x, blk_y, blk_z, map_name='WORLD_SURFACE'):
         """Set the x, z value in the heightmap to y"""
