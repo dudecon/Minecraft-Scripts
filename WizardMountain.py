@@ -19,7 +19,7 @@ LOAD_NAME = "TestB"
 # on level ground.
 # The script tries to match the mountain to the terrain, 
 # so the size will be much smaller on slopes.
-RADIUS = 18
+RADIUS = 28
 
 # How far into the sky do you want to move it?
 # default 15
@@ -105,7 +105,7 @@ def coords_to_loc(coords):
 class Square(object):
     """a single square that knows about itself"""
 
-    def __init__(self, mclevel, x, z):
+    def __init__(self, mclevel, x, z, origin = None):
         self.x = x
         self.y = mclevel.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
         self.z = z
@@ -114,12 +114,12 @@ class Square(object):
                            tuple(coords_to_loc(c) for c in
                                  ((x - 1, z + 1), (x - 1, z - 1), (x + 1, z + 1), (x + 1, z - 1))))
         # precompute the radius, since it should never change
-        if hasattr(self, 'origin'):
-            delta_x = abs(x - self.origin.x)
-            delta_z = abs(z - self.origin.z)
-            self.this_radius = sqrt(delta_x ** 2 + delta_z ** 2)
-        else:
+        if origin is None:
             self.this_radius = 0
+        else:
+            delta_x = abs(x - origin.x)
+            delta_z = abs(z - origin.z)
+            self.this_radius = sqrt(delta_x ** 2 + delta_z ** 2)
         # what is the current weight of the square?
         # Squares grow when they reach zero weight
         self.weight = -1.0
@@ -178,7 +178,7 @@ class FlyingMountain(object):
             else:
                 # this square is not in any square lists
                 # make a new square and add it to the outside
-                square = Square(self.save_file, cur_x, cur_z)
+                square = Square(self.save_file, cur_x, cur_z, self.origin)
                 self.outside.update({loc_string: square})
             square.adjacent += 1
             if square.adjacent == 6:
@@ -281,7 +281,7 @@ class FlyingMountain(object):
         set_block = self.save_file.set_block
         origin_weight = self.origin.weight
         # the scaling factor is based on the origin_weight
-        depth_scale = 9 / origin_weight
+        depth_scale = 6 / origin_weight
         # print(len(self.interior))
         # print(len(self.outside))
         # Default "air" block
