@@ -29,7 +29,7 @@ RADIUS = 2
 BOULDERS = True
 
 # How big do you want the boulders to be?
-BOULDER_SIZE = 36
+BOULDER_SIZE = 6
 
 # How much would you like the size of the boulders to vary?
 # This value is a +- value, so with BOULDER_SIZE = 5
@@ -60,7 +60,7 @@ CRATERS = True
 # 3 times wider than they are tall
 # On uneven ground, however, this may vary
 # NOTE: larger values take MUCH longer to process.
-CRATER_DEPTH = 800
+CRATER_DEPTH = 30
 
 # How much should the crater size vary?
 # same principle as BOULDER_RANDOMIZATION
@@ -279,7 +279,7 @@ class SphereObject(object):
             for x_off in range(int(radius + 1)):
                 sqr_dist_2d = (x_off ** 2 + sqr_dist_z)
                 if sqr_dist_2d > rad_sqr:
-                    continue
+                    break
                 sqrt_dist = sqrt(rad_sqr - sqr_dist_2d)
                 y_start = max(loc_y + radius - sqrt_dist,
                               loc_y + self.bottom_offset, MAP_BOTTOM)
