@@ -1,7 +1,7 @@
 # Minecraft-Scripts
 Python scripts for modifying Minecraft save files
 
-NOTE: these scripts currently only work on the Anvil file format, from Minecraft Alpha to V 1.12, 1.13 and later save formats are not yet supported.
+NOTE: these scripts currently only work on the Anvil file format, from Minecraft Alpha to V 1.12, 1.13 and later save formats, see the "main" branch of the project.
 
 Instructions:
 - You must have Python (3.x) installed, go get it if you don't http://www.python.org/download/.
