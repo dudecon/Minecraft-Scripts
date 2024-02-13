@@ -1,54 +1,46 @@
-# Version 1
+# Version 2
 """This takes a MineCraft level and changes the amount of materials present.
 It is designed to shrink the amount of ore underground, but you can use it for
-other things too.
+replacing any block type with any other block type.
 """
+
+# The following is an interface class for .mclevel data for minecraft savefiles.
+import mcInterface
+from random import random
+
 
 # Here are the variables you can edit.
 
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
-LOADNAME = "Test"
+LOADNAME = "TestB"
 
-# Where do you want to start the search?
-# X, and Z are the map coordinates of the lower corner.
-X = 70
-Z = 40
-
+# the search will be around the player
 # How large an area do you want to search?
-# The x and z dimensions of the search box (positive values only).
-SIZEX = 100
-SIZEZ = 100
+# size is in chunks:
+# 0 is just the chunk that the player is in
+# 1 is the player's chunk + and - 1 chunk (so 9 total)
+# 2 is 25 chunks centered on the player, etc
+SEARCHSIZE = 1
 
 # What block types do you want to affect, and by how much?
-# This is a dictionary. The format is:
-# {block id #:multiple fraction, other id:other fraction}
-# 
-# For example:
-# ALTER = {14:0.5, 49:0.1}
-# will reduce gold ore (id 14) by one half (0.5) of the current quantity,
-# and reduces obsidian (id 49) by one tenth (0.1) the current quantity.
-# quantity
-#
-# Default: {14: 0.4, 15: 0.4, 16: 0.4, 21: 0.4, 56: 0.4, 73: 0.4}
-# which reduces gold, iron, coal, lapis, diamond, and redstone ores to 40% of their original quantity
-ALTER = {14: 0.4, 15: 0.4, 16: 0.4, 21: 0.4, 56: 0.4, 73: 0.4}
+# This is a tuple or list of block types
+# Default: mcInterface.blocktype_extractable
+# which is all the ores
+ALTER = mcInterface.blocktype_extractable
+
+# What fraction of blocks do you want to replace?
+# 1 will replace everything
+# 0.5 will replace half
+# Default: 0.4
+FRACTION = 0.4
 
 # What block type is the environment of the altered blocks?
-# If an increase is indicated, only this type of blocks will be replaced
-# if a decrease is indicated, this block type will replace it.
-# Default: 1 (stone)
-ENVIRONMENT = 1
-
-# Do you want to do a quick search?
-# Sets the spacing of the search.
-# larger numbers mean a more coarse search
-# so they go faster, but also may miss small deposits
-# default 3
-# set to 1 to search every single block
-SEARCH_CADENCE = 3
-# Technical note, the cadence applies to both the horizontal plane, as well as the vertical column
-# so cadence = 3 will be 9 times faster than searching every block
+# If an increase is indicated, only these types of blocks will be replaced
+# if a decrease is indicated, these blocks will replace them.
+# Default: mcInterface.blocktype_stones
+# the script will attempt to use existing block types where they are already present
+ENVIRONMENT = mcInterface.blocktype_stones
 
 ##############################################################
 #  Don't edit below here unless you know what you are doing  #
@@ -56,117 +48,88 @@ SEARCH_CADENCE = 3
 
 # input filtering
 
-if SIZEX < 1:
-    print("SIZEX was less than one, setting to 1 and continuing on")
-    SIZEX = 1
-if SIZEZ < 1:
-    print("SIZEX was less than one, setting to 1 and continuing on")
-    SIZEZ = 1
+if SEARCHSIZE < 0:
+    print("SEARCHSIZE was less than zero, setting to 0 and continuing on")
+    SEARCHSIZE = 0
 if len(ALTER) < 1:
     print("There is nothing in ALTER, aborting!")
     raise IOError("ALTER empty, not looking for anything")
-
-# The following is an interface class for .mclevel data for minecraft savefiles.
-
-import mcInterface
+if FRACTION <= 0:
+    print("Please replace at least something!")
+    raise IOError("FRACTION zero or less, not replacing anything")
+if FRACTION > 1:
+    print("FRACTION greater than 1, setting to 1 and continuing on")
+    FRACTION = 1
 
 # Now, on to the actual code.
 
-from random import random
+def get_chunks(the_map):
+    all_chunks = []
+    px,py,pz = the_map.get_player_block()
+    locations = [(px,pz),]
+    if SEARCHSIZE > 0:
+        for i in range(SEARCHSIZE+1):
+            xoff = i * 16
+            for j in range(SEARCHSIZE+1):
+                zoff = j * 16
+                if xoff == zoff == 0:
+                    continue
 
+                locations += [(px+xoff,pz+zoff),]
+                if xoff > 0:
+                    locations += [(px - xoff, pz + zoff), ]
+                if zoff > 0:
+                    locations += [(px + xoff, pz - zoff), ]
+                if xoff > 0 and zoff > 0:
+                    locations += [(px - xoff, pz - zoff), ]
+    for x,z in locations:
+        possible_chunk = the_map.get_chunk_from_cord(x,z)
+        if possible_chunk is None: continue
+        all_chunks.append(possible_chunk)
+    return all_chunks
 
-def is_in_pattern(x, z):
-    """If this column is in the search pattern, return True, otherwise False
-    x and z are the RELATIVE coordinates of the column (relative to X and Z)
-    """
-    if SEARCH_CADENCE == 1: return True
-    value = (z + x) % SEARCH_CADENCE
-    if value == 0:
-        return True
+def replace_section_materials(section, find, replace, fraction = 1):
+    if 'block_states' not in section: return
+    block_states = section['block_states'].payload
+    palette = block_states['palette'].payload
+    if 'data' in block_states:
+        data = block_states['data']
     else:
-        return False
+        data = mcInterface.SaveFile.new_block_data()
+        block_states['data'] = data
+    # and unpack the block states if necessary
+    if not hasattr(data, "unpacked"):
+        mcInterface.SaveFile.unpack_block_states(data, palette)
+    #search the pallete for the find values and make a list of indicies
+    # search the pallete for the replace values, use the first one found
+    find_indicies = []
+    replaceidx = -1
+    for i in range(len(palette)):
+        block_name = palette[i].payload["Name"].payload.replace("minecraft:",'')
+        if block_name in find:
+            find_indicies.append(i)
+        if replaceidx == -1 and block_name in replace:
+            replaceidx = i
+    # abort if there is nothing to find and replace
+    if len(find_indicies) == 0: return
+    if replaceidx == -1:
+        # if no replacement material is found, add a new pallete entry
+        mcInterface.SaveFile.add_block_data(mcInterface.SaveFile,palette, {'B':'minecraft:'+replace[0]})
+        replaceidx = len(palette) - 1
+    if fraction == 1:
+        # if fraction is 1, do a pallete swap
+        newpalletdata = palette[replaceidx]
+        for i in find_indicies:
+            palette[i] = newpalletdata
+    else:
+        # list comprehension find and replace and clobber the section block list
+        data.unpacked = [replaceidx if (idx in find_indicies and random() < fraction)
+                         else idx for idx in data.unpacked]
 
-
-def search_column(x, z, map_object: mcInterface.SaveFile):
-    """Return a list of blocks found in this column.
-    """
-    # get the HeightMap value
-    hmnl = map_object.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
-    hmof = map_object.get_heightmap(x, z, "OCEAN_FLOOR")
-    if (hmnl is None) or (hmof is None): return []
-    end_y = min(hmnl, hmof)
-    # the list of the locations
-    location_list = []
-    search_range = end_y // SEARCH_CADENCE
-    # map the get_block function
-    block = map_object.block
-    # search the column below this value
-    for search_index in range(search_range):
-        y = (search_index * SEARCH_CADENCE) + (x % SEARCH_CADENCE)
-        block_type = block(x, y, z)
-        if block_type in ALTER:
-            location = {"x": x, "y": y, "z": z, 'B': block_type}
-            location_list += [location]
-    return location_list
-
-
-def find_mats(map_object: mcInterface.SaveFile):
-    """Search the map for blocks in ALTER and return them as a list.
-    """
-    # the list of the locations
-    found_locations = set()
-    # big search loop
-    for x_offset in range(SIZEX):
-        cur_x = X + x_offset
-        for z_offset in range(SIZEZ):
-            cur_z = Z + z_offset
-            # check if we want to even search this column
-            if not is_in_pattern(x_offset, z_offset): continue
-            found_this_column = search_column(cur_x, cur_z, map_object)
-            found_locations += found_this_column
-    return found_locations
-
-
-# init the search vectors
-search_offsets = {(0, 0, 0), }
-for off in range(1, SEARCH_CADENCE):
-    search_offsets.add((off, 0, 0))
-    search_offsets.add((0, off, 0))
-    search_offsets.add((0, 0, off))
-
-
-def replace_location(map_object: mcInterface.SaveFile, loc):
-    """Replace the materials in the current location
-    """
-    # localize the get and set functions
-    block = map_object.block
-    set_block = map_object.set_block
-
-    for off in search_offsets:
-        x = off[0] + loc[0]
-        y = off[1] + loc[1]
-        z = off[2] + loc[2]
-        if off == (0, 0, 0):
-            block_info = loc[3]
-        else:
-            block_info = block(x, y, z)
-            if block_info is None: continue
-        if block_info in ALTER:
-            fraction = ALTER[block_info]
-            if random() > fraction:
-                set_block(x, y, z, {'B': ENVIRONMENT})
-    return True
-
-
-def replace_mats(map_object, locations):
-    """Enact the change in materials.
-    Replace the material indicated with the ENVIRONMENT material,
-    or grow the material into the ENVIRONMENT material.
-    """
-    # loop through each location
-    for loc in locations:
-        replace_location(map_object, loc)
-
+def replace_chunk_materials(chunk, find, replace, fraction):
+    sections = chunk.tags[0].payload['sections'].payload
+    for section in sections:
+        replace_section_materials(section.payload, find, replace, fraction)
 
 def main():
     """Load the file, do the stuff, and save the new file.
@@ -177,14 +140,13 @@ def main():
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
-    print("Finding the materials")
-    loc_list = find_mats(the_map)
-    print_string = str(len(loc_list)) + ' samples found'
-    print(print_string)
+    print("Finding the chunks")
+    all_chunks = get_chunks(the_map)
     print("Replacing the materials")
-    replace_mats(the_map, loc_list)
+    for c in all_chunks:
+        replace_chunk_materials(c, ALTER, ENVIRONMENT, FRACTION)
     # print("Saving the map (takes a bit)")
-    # the_map.write()
+    the_map.write()
     print("finished")
     return None
 
