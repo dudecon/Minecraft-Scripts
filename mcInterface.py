@@ -1,9 +1,10 @@
-# Version 1.18
+# Version 1.19
 """an interface module to allow read/write access to Minecraft save files
 """
 
 # Read and write are implemented now.
-# Works with the Minecraft 1.13 and later file format
+# Works with Minecraft 1.13 and later, including the 26.1+ save layout
+# (players/data, dimensions/minecraft/<dim>/region)
 # 
 # Paul Spooner
 # www.peripheralarbor.com
@@ -17,12 +18,25 @@ RELIGHT = True
 ##############################################################
 
 import gzip
+import os
 import time
 import zlib
 from struct import pack, unpack
 
 COORD_MAP = {'x': 0, 'y': 1, 'z': 2}
 ROT_MAP = {'yaw': 0, 'pitch': 1}
+
+
+def uuid_from_int_array(int_array):
+    """Convert a Minecraft UUID int array into a dashed UUID string."""
+    parts = [i & 0xFFFFFFFF for i in int_array]
+    return '{:08x}-{:04x}-{:04x}-{:04x}-{:012x}'.format(
+        parts[0],
+        (parts[1] >> 16) & 0xFFFF,
+        parts[1] & 0xFFFF,
+        (parts[2] >> 16) & 0xFFFF,
+        ((parts[2] & 0xFFFF) << 32) | parts[3]
+    )
 
 
 def raw_readout(raw_data, cap=144, start=0):
@@ -812,6 +826,12 @@ class SaveFile(object):
         # import the dat file
         self.dat = None
         self.read_dat()
+        # player data may live in level.dat (pre-26.1) or a separate player file
+        self.player_dat = None
+        self.player_file_path = None
+        self._player_payload = None
+        # region folder depends on the save layout and the player's dimension
+        self.region_folder = None
         self.lock = None
         self.write_lock()
 
@@ -833,8 +853,8 @@ class SaveFile(object):
         if file_name in regions:
             return regions[file_name]
         else:
-            # compose the path to the file
-            file_path = self.save_folder + '/region/' + file_name
+            # compose the path to the file (26.1+ uses dimensions/<ns>/<path>/region)
+            file_path = self.get_region_folder() + '/' + file_name
             try:
                 new_region = Region(file_path)
             except IOError:
@@ -979,11 +999,104 @@ class SaveFile(object):
         # print(map_payload)
         return map_payload
 
+    def _player_file_from_uuid(self, uuid_str):
+        """Return the player .dat path for a UUID, or None if it is missing."""
+        candidates = [
+            self.save_folder + '/players/data/' + uuid_str + '.dat',
+            self.save_folder + '/playerdata/' + uuid_str + '.dat',
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def _newest_player_file(self):
+        """Return the most recently modified player .dat, or None."""
+        folders = [
+            self.save_folder + '/players/data',
+            self.save_folder + '/playerdata',
+        ]
+        newest_path = None
+        newest_mtime = -1
+        for folder in folders:
+            if not os.path.isdir(folder):
+                continue
+            for name in os.listdir(folder):
+                if not name.endswith('.dat'):
+                    continue
+                path = folder + '/' + name
+                if not os.path.isfile(path):
+                    continue
+                mtime = os.path.getmtime(path)
+                if mtime > newest_mtime:
+                    newest_mtime = mtime
+                    newest_path = path
+        return newest_path
+
     def get_player(self):
         """returns a dictionary which is the mutable player data. Change and save to update."""
-        player_payload = self.get_map_data()['Player'].payload
-        # print(player_payload)
-        return player_payload
+        if self._player_payload is not None:
+            return self._player_payload
+        map_data = self.get_map_data()
+        # Pre-26.1 singleplayer stores the player inside level.dat
+        if 'Player' in map_data:
+            self._player_payload = map_data['Player'].payload
+            return self._player_payload
+        # 26.1+ stores a UUID in level.dat and the player in players/data/<uuid>.dat
+        player_path = None
+        if 'singleplayer_uuid' in map_data:
+            uuid_str = uuid_from_int_array(map_data['singleplayer_uuid'].payload)
+            player_path = self._player_file_from_uuid(uuid_str)
+        if player_path is None:
+            player_path = self._newest_player_file()
+        if player_path is None:
+            raise KeyError('Player data not found in level.dat or player files')
+        player_file = gzip.open(player_path)
+        player_raw = player_file.read()
+        player_file.close()
+        self.player_dat = NbtData(player_raw)
+        self.player_file_path = player_path
+        self._player_payload = self.player_dat.tags[0].payload
+        return self._player_payload
+
+    def get_player_dimension(self):
+        """Return the namespaced dimension id the player is currently in."""
+        player = self.get_player()
+        if 'Dimension' not in player:
+            return 'minecraft:overworld'
+        dim = player['Dimension'].payload
+        if dim in (0, '0'):
+            return 'minecraft:overworld'
+        if dim in (-1, '-1'):
+            return 'minecraft:the_nether'
+        if dim in (1, '1'):
+            return 'minecraft:the_end'
+        return dim
+
+    def get_region_folder(self):
+        """Return the folder that stores region files for the player's dimension."""
+        if self.region_folder is not None:
+            return self.region_folder
+        dim = self.get_player_dimension()
+        if ':' in str(dim):
+            namespace, path = dim.split(':', 1)
+        else:
+            namespace, path = 'minecraft', str(dim)
+        candidates = [self.save_folder + '/dimensions/' + namespace + '/' + path + '/region']
+        if dim == 'minecraft:overworld':
+            candidates.append(self.save_folder + '/region')
+        elif dim == 'minecraft:the_nether':
+            candidates.append(self.save_folder + '/DIM-1/region')
+            candidates.append(self.save_folder + '/DIM-1')
+        elif dim == 'minecraft:the_end':
+            candidates.append(self.save_folder + '/DIM1/region')
+            candidates.append(self.save_folder + '/DIM1')
+        for folder in candidates:
+            if os.path.isdir(folder):
+                self.region_folder = folder
+                return folder
+        self.region_folder = candidates[0]
+        return self.region_folder
 
     def get_player_pos(self):
         pos_data = self.get_player()['Pos'].payload
@@ -1360,6 +1473,15 @@ class SaveFile(object):
         # close the file
         dat_file.close()
 
+    def write_player(self):
+        """Write player data when it was loaded from a separate .dat file."""
+        if self.player_dat is None or self.player_file_path is None:
+            return
+        output = self.player_dat.encode_data()
+        player_file = gzip.open(self.player_file_path, 'w')
+        player_file.write(output)
+        player_file.close()
+
     def read_lock(self):
         """Read in the lock file"""
         # the location of the lock file
@@ -1408,6 +1530,8 @@ class SaveFile(object):
         if self.check_lock(): return False
         # write out the dat file
         self.write_dat()
+        # write player data if it lives in a separate file (26.1+)
+        self.write_player()
         # again, check the lock
         if self.check_lock(): return False
         # write out the blocks
