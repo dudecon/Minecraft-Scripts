@@ -2121,6 +2121,86 @@ class SaveFile(object):
         self.write_blocks()
         return True
 
+    def resolve_origin(self, origin=None):
+        """Return [x, y, z] int coordinates for a script to work around.
+
+        origin:
+            None -- the player's current block position
+            (x, z) -- that column, y from the MOTION_BLOCKING_NO_LEAVES heightmap
+            (x, y, z) -- used as given
+        """
+        if origin is None:
+            return list(self.get_player_block())
+        origin = list(origin)
+        if len(origin) == 2:
+            x = int(origin[0])
+            z = int(origin[1])
+            y = self.get_heightmap(x, z, 'MOTION_BLOCKING_NO_LEAVES')
+            if y is None:
+                y = self.get_player_block()[1]
+            return [x, int(y), z]
+        if len(origin) < 3:
+            raise ValueError('origin must be None, (x, z), or (x, y, z)')
+        return [int(origin[0]), int(origin[1]), int(origin[2])]
+
+
+def _setting_names(namespace):
+    """Uppercase, non-callable names in a script module: the user settings."""
+    names = []
+    for key, val in list(namespace.items()):
+        if key != key.upper() or key.startswith('_'):
+            continue
+        if callable(val):
+            continue
+        names.append(key)
+    return names
+
+
+def apply_settings(namespace, settings):
+    """Copy settings onto a script module, then run its _validate() if present.
+
+    Unknown names raise TypeError. Returns a dict of previous values for
+    every uppercase setting (so a caller can restore the whole set).
+    """
+    if not settings:
+        previous = {key: namespace[key] for key in _setting_names(namespace)}
+        return previous
+    unknown = []
+    for key in settings:
+        if key not in namespace or key != key.upper() or callable(namespace.get(key)):
+            unknown.append(key)
+    if unknown:
+        raise TypeError("Unknown setting(s): %s" % ", ".join(unknown))
+    previous = {key: namespace[key] for key in _setting_names(namespace)}
+    namespace.update(settings)
+    validate = namespace.get('_validate')
+    if callable(validate):
+        validate()
+    return previous
+
+
+class temporary_settings(object):
+    """Apply settings to a script module for the duration of a with-block.
+
+    Restores every uppercase setting afterward, so one call cannot leak
+    into the next. Used by each script's main(..., **settings).
+    """
+
+    def __init__(self, namespace, settings=None):
+        self.namespace = namespace
+        self.settings = dict(settings) if settings else {}
+        self.previous = None
+
+    def __enter__(self):
+        self.previous = apply_settings(self.namespace, self.settings)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.previous is not None:
+            self.namespace.update(self.previous)
+        return False
+
+
 # some helper lists of block types
 
 # Natural Blocks

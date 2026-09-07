@@ -1,6 +1,9 @@
 # Version 4
 """This takes a base MineCraft level and adds a powered rail.
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 """
@@ -83,27 +86,30 @@ VERBOSE = False
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
-DIRECTION = DIRECTION.upper()
-if DIRECTION not in ('+X', '-X', '+Z', '-Z'):
-    print("DIRECTION value '" + str(DIRECTION) + "' is not a valid choice, please use '+X', '-X', '+Z', or '-Z'")
-    print("Setting to +X and continuing")
-    DIRECTION = '+X'
-if DISTANCE < 1:
-    DISTANCE = 1
-    print('DISTANCE was less than 1. Setting to 1 and continuing.')
-if POWERSPACING < 1:
-    POWERSPACING = 1
-    print('POWERSPACING was less than 1. Setting to 1 and continuing.')
-if TUNNELHEIGHT < 1:
-    TUNNELHEIGHT = 1
-    print('TUNNELHEIGHT was less than 1. Setting to 1 and continuing.')
-if PILLARSPACING < 1:
-    PILLARSPACING = 0
-    print('PILLARSPACING was less than 1. Building no pillars')
-if LIGHTSPACING < 1:
-    LIGHTSPACING = 0
-    print('LIGHTSPACING was less than 1. Adding no lights')
+def _validate():
+    global DIRECTION, DISTANCE, POWERSPACING, TUNNELHEIGHT, PILLARSPACING, LIGHTSPACING
+    DIRECTION = DIRECTION.upper()
+    if DIRECTION not in ('+X', '-X', '+Z', '-Z'):
+        print("DIRECTION value '" + str(DIRECTION) + "' is not a valid choice, please use '+X', '-X', '+Z', or '-Z'")
+        print("Setting to +X and continuing")
+        DIRECTION = '+X'
+    if DISTANCE < 1:
+        DISTANCE = 1
+        print('DISTANCE was less than 1. Setting to 1 and continuing.')
+    if POWERSPACING < 1:
+        POWERSPACING = 1
+        print('POWERSPACING was less than 1. Setting to 1 and continuing.')
+    if TUNNELHEIGHT < 1:
+        TUNNELHEIGHT = 1
+        print('TUNNELHEIGHT was less than 1. Setting to 1 and continuing.')
+    if PILLARSPACING < 1:
+        PILLARSPACING = 0
+        print('PILLARSPACING was less than 1. Building no pillars')
+    if LIGHTSPACING < 1:
+        LIGHTSPACING = 0
+        print('LIGHTSPACING was less than 1. Adding no lights')
+
+_validate()
 
 
 # assemble the material dictionaries
@@ -145,7 +151,7 @@ def get_surface(x, y, z, mclevel: mcInterface.SaveFile):
     return y
 
 
-def lay_the_rail(mclevel):
+def lay_the_rail(mclevel, origin=None):
     """Increment over the rail positions and call the appropriate create functions when needed."""
     # some more useful globals
     RAIL_DATA_DICT = {'Z': 'north_south', 'X': 'east_west'}
@@ -164,7 +170,10 @@ def lay_the_rail(mclevel):
     # make a lighting update list
     light_emit_list = []
     # x is 0 and z is 2 in the position list
-    position = [int(i) for i in mclevel.get_player_block()]
+    if origin is None:
+        position = [int(i) for i in mclevel.get_player_block()]
+    else:
+        position = mclevel.resolve_origin(origin)
     for total_dist in range(DISTANCE):
         x, y, z = position
         # find the existing height of the land
@@ -263,12 +272,23 @@ def lay_the_rail(mclevel):
     return light_emit_list
 
 
-def main(the_map):
-    """Load the file, create the rail line, and save the new file.
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map, origin=None, **settings):
+    """Lay the rail on an open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z). The rail starts here.
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and the light-block list.
     """
-    print("Laying the rail")
-    lights = lay_the_rail(the_map)
-    return lights
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        print("Laying the rail")
+        lights = lay_the_rail(the_map, origin)
+        return {'origin': origin, 'lights': lights}
 
 
 def standalone():

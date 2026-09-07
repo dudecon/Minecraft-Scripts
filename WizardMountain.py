@@ -1,6 +1,9 @@
 # Version 6
 """This takes a MineCraft level and rends some landscape up into the sky.
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 """
@@ -56,24 +59,35 @@ DEPTHOFFSET = 0
 # False will print a little, makes it a little faster
 VERBOSE = False
 
+# When used as a module, should the player be moved up onto the mountain?
+# True the player is lifted with the mountain (default, same as standalone)
+# False leave the player where they are
+MOVE_PLAYER = True
+
 ##############################################################
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
+def _validate():
+    global RADIUS, HEIGHT, DEPTH_SCALE, DEPTHOFFSET, MOVE_PLAYER, VERBOSE
+    if RADIUS < 1:
+        print("RADIUS is less than 1, setting it to 5")
+        RADIUS = 5
+    if HEIGHT < 1:
+        print("HEIGHT is less than 1, setting it to 15")
+        HEIGHT = 15
+        print("This script doesn't put stuff lower than it already is.",
+              "Try StarStone with craters turned on.")
+    if DEPTH_SCALE < 0:
+        print("DEPTH_SCALE is negative, setting to zero")
+        DEPTH_SCALE = 0
+    DEPTHOFFSET = int(DEPTHOFFSET)
+    if MOVE_PLAYER not in (True, False):
+        MOVE_PLAYER = True
+    if VERBOSE not in (True, False):
+        VERBOSE = False
 
-if RADIUS < 1:
-    print("RADIUS is less than 1, setting it to 5")
-    RADIUS = 5
-if HEIGHT < 1:
-    print("HEIGHT is less than 1, setting it to 15")
-    HEIGHT = 15
-    print("This script doesn't put stuff lower than it already is.",
-          "Try StarStone with craters turned on.")
-if DEPTH_SCALE < 0:
-    print("DEPTH_SCALE is negative, setting to zero")
-    DEPTH_SCALE = 0
-DEPTHOFFSET = int(DEPTHOFFSET)
+_validate()
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
 import mcInterface
@@ -326,25 +340,40 @@ class FlyingMountain(object):
                 print("Raised " + str(this_depth) + "blocks at " + str((x, z)))
 
 
-def main(the_map: mcInterface.SaveFile):
-    """Load the file, do the stuff, and save the new file.
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map: mcInterface.SaveFile, origin=None, **settings):
+    """Lift a mountain on an already-open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin, peak, and interior count.
     """
-    print("Finding the mountain")
-    player_pos = the_map.get_player_pos()
-    position = the_map.get_player_block()
-    newplayerpos = {'y': player_pos[1] + HEIGHT}
-    the_map.set_player_pos(newplayerpos)
-    mont = FlyingMountain(the_map)
-    mont.origin_square(position[0], position[2])
-    for i in range(RADIUS):
-        mont.grow_all()
-        if VERBOSE:
-            print("Expansion " + str(i + 1) + " of " + str(RADIUS) + " done")
-    num_of_squares = len(mont.interior)
-    print("found " + str(num_of_squares) + " included block columns")
-    print("Lifting the mountain into the sky!")
-    mont.create()
-    return None
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        print("Finding the mountain")
+        if MOVE_PLAYER:
+            player_pos = the_map.get_player_pos()
+            the_map.set_player_pos({
+                'x': origin[0] + 0.5,
+                'y': player_pos[1] + HEIGHT,
+                'z': origin[2] + 0.5,
+            })
+        mont = FlyingMountain(the_map)
+        mont.origin_square(origin[0], origin[2])
+        for i in range(RADIUS):
+            mont.grow_all()
+            if VERBOSE:
+                print("Expansion " + str(i + 1) + " of " + str(RADIUS) + " done")
+        num_of_squares = len(mont.interior)
+        print("found " + str(num_of_squares) + " included block columns")
+        print("Lifting the mountain into the sky!")
+        mont.create()
+        peak = [origin[0], origin[1] + HEIGHT, origin[2]]
+        return {'origin': origin, 'peak': peak, 'interior': num_of_squares}
 
 
 def standalone():

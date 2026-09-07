@@ -2,6 +2,9 @@
 """This takes a MineCraft level and changes the amount of materials present.
 It is designed to shrink the amount of ore underground, but you can use it for
 replacing any block type with any other block type.
+
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
 """
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
@@ -46,26 +49,28 @@ ENVIRONMENT = mcInterface.blocktype_stones
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
+def _validate():
+    global SEARCHSIZE, FRACTION
+    if SEARCHSIZE < 0:
+        print("SEARCHSIZE was less than zero, setting to 0 and continuing on")
+        SEARCHSIZE = 0
+    if len(ALTER) < 1:
+        print("There is nothing in ALTER, aborting!")
+        raise IOError("ALTER empty, not looking for anything")
+    if FRACTION <= 0:
+        print("Please replace at least something!")
+        raise IOError("FRACTION zero or less, not replacing anything")
+    if FRACTION > 1:
+        print("FRACTION greater than 1, setting to 1 and continuing on")
+        FRACTION = 1
 
-if SEARCHSIZE < 0:
-    print("SEARCHSIZE was less than zero, setting to 0 and continuing on")
-    SEARCHSIZE = 0
-if len(ALTER) < 1:
-    print("There is nothing in ALTER, aborting!")
-    raise IOError("ALTER empty, not looking for anything")
-if FRACTION <= 0:
-    print("Please replace at least something!")
-    raise IOError("FRACTION zero or less, not replacing anything")
-if FRACTION > 1:
-    print("FRACTION greater than 1, setting to 1 and continuing on")
-    FRACTION = 1
+_validate()
 
 # Now, on to the actual code.
 
-def get_chunks(the_map):
+def get_chunks(the_map, origin=None):
     all_chunks = []
-    px,py,pz = the_map.get_player_block()
+    px, py, pz = the_map.resolve_origin(origin)
     locations = [(px,pz),]
     if SEARCHSIZE > 0:
         for i in range(SEARCHSIZE+1):
@@ -131,7 +136,29 @@ def replace_chunk_materials(chunk, find, replace, fraction):
     for section in sections:
         replace_section_materials(section.payload, find, replace, fraction)
 
-def main():
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map, origin=None, **settings):
+    """Replace materials on an open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and the number of chunks touched.
+    """
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        print("Finding the chunks")
+        all_chunks = get_chunks(the_map, origin)
+        print("Replacing the materials")
+        for c in all_chunks:
+            replace_chunk_materials(c, ALTER, ENVIRONMENT, FRACTION)
+        return {'origin': origin, 'chunks': len(all_chunks)}
+
+
+def standalone():
     """Load the file, do the stuff, and save the new file.
     """
     print("Importing the map")
@@ -140,16 +167,12 @@ def main():
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
-    print("Finding the chunks")
-    all_chunks = get_chunks(the_map)
-    print("Replacing the materials")
-    for c in all_chunks:
-        replace_chunk_materials(c, ALTER, ENVIRONMENT, FRACTION)
-    # print("Saving the map (takes a bit)")
+    main(the_map)
+    print("Saving the map (takes a bit)")
     the_map.write()
     print("finished")
     return None
 
 
 if __name__ == '__main__':
-    main()
+    standalone()

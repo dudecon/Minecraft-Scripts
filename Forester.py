@@ -1,6 +1,9 @@
 # Version 10
 """This takes a base MineCraft level and adds or edits trees.
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html"""
 
@@ -270,55 +273,62 @@ VERBOSEFEATURES = False
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
-TREECOUNT = int(TREECOUNT)
-if TREECOUNT < 0: TREECOUNT = 0
-if SHAPE not in ["normal", "bamboo", "palm", "stickly",
-                 "round", "cone", "procedural",
-                 "rainforest", "mangrove"]:
-    if VERBOSE: print("SHAPE not set correctly, using 'procedural'.")
-    SHAPE = "procedural"
-if CENTERHEIGHT < 1:
-    CENTERHEIGHT = 1
-if EDGEHEIGHT < 1:
-    EDGEHEIGHT = 1
-minheight = min(CENTERHEIGHT, EDGEHEIGHT)
-if HEIGHTVARIATION > minheight:
-    HEIGHTVARIATION = minheight
-if INTERPOLATION not in ["linear", "even"]:
-    if VERBOSE: print("INTERPOLATION not set correctly, using 'linear'.")
-    INTERPOLATION = "linear"
-if WOOD not in [True, False]:
-    if VERBOSE: print("WOOD not set correctly, using True")
-    WOOD = True
-if TRUNKTHICKNESS < 0.0:
-    TRUNKTHICKNESS = 0.0
-if TRUNKHEIGHT < 0.0:
-    TRUNKHEIGHT = 0.0
-if ROOTS not in ["yes", "tostone", "hanging", "no"]:
-    if VERBOSE: print("ROOTS not set correctly, using 'no' and creating no roots")
-    ROOTS = "no"
-if ROOTBUTTRESSES not in [True, False]:
-    if VERBOSE: print("ROOTBUTTRESSES not set correctly, using False")
-    ROOTBUTTRESSES = False
-if FOLIAGE not in [True, False]:
-    if VERBOSE: print("FOLIAGE not set correctly, using True")
-    ROOTBUTTRESSES = True
-if FOLIAGEDENSITY < 0.0:
-    FOLIAGEDENSITY = 0.0
-if BRANCHDENSITY < 0.0:
-    BRANCHDENSITY = 0.0
-if MAPHEIGHTLIMIT not in [True, False]:
-    if VERBOSE: print("MAPHEIGHTLIMIT not set correctly, using False")
-    MAPHEIGHTLIMIT = False
-if LIGHTTREE not in [0, 1, 2, 4]:
-    if VERBOSE: print("LIGHTTREE not set correctly, using 0 for no torches")
-    LIGHTTREE = 0
-# assemble the material dictionaries
-WOODINFO = WOODMAT.copy()
-LEAFINFO = LEAFMAT.copy()
-LIGHTINFO = LIGHTMAT.copy()
-TRUNKFILLINFO = TRUNKFILLMAT.copy()
+def _validate():
+    global TREECOUNT, SHAPE, CENTERHEIGHT, EDGEHEIGHT, HEIGHTVARIATION
+    global INTERPOLATION, WOOD, TRUNKTHICKNESS, TRUNKHEIGHT, ROOTS
+    global ROOTBUTTRESSES, FOLIAGE, FOLIAGEDENSITY, BRANCHDENSITY
+    global MAPHEIGHTLIMIT, LIGHTTREE
+    global WOODINFO, LEAFINFO, LIGHTINFO, TRUNKFILLINFO
+    TREECOUNT = int(TREECOUNT)
+    if TREECOUNT < 0: TREECOUNT = 0
+    if SHAPE not in ["normal", "bamboo", "palm", "stickly",
+                     "round", "cone", "procedural",
+                     "rainforest", "mangrove"]:
+        if VERBOSE: print("SHAPE not set correctly, using 'procedural'.")
+        SHAPE = "procedural"
+    if CENTERHEIGHT < 1:
+        CENTERHEIGHT = 1
+    if EDGEHEIGHT < 1:
+        EDGEHEIGHT = 1
+    minheight = min(CENTERHEIGHT, EDGEHEIGHT)
+    if HEIGHTVARIATION > minheight:
+        HEIGHTVARIATION = minheight
+    if INTERPOLATION not in ["linear", "even"]:
+        if VERBOSE: print("INTERPOLATION not set correctly, using 'linear'.")
+        INTERPOLATION = "linear"
+    if WOOD not in [True, False]:
+        if VERBOSE: print("WOOD not set correctly, using True")
+        WOOD = True
+    if TRUNKTHICKNESS < 0.0:
+        TRUNKTHICKNESS = 0.0
+    if TRUNKHEIGHT < 0.0:
+        TRUNKHEIGHT = 0.0
+    if ROOTS not in ["yes", "tostone", "hanging", "no"]:
+        if VERBOSE: print("ROOTS not set correctly, using 'no' and creating no roots")
+        ROOTS = "no"
+    if ROOTBUTTRESSES not in [True, False]:
+        if VERBOSE: print("ROOTBUTTRESSES not set correctly, using False")
+        ROOTBUTTRESSES = False
+    if FOLIAGE not in [True, False]:
+        if VERBOSE: print("FOLIAGE not set correctly, using True")
+        FOLIAGE = True
+    if FOLIAGEDENSITY < 0.0:
+        FOLIAGEDENSITY = 0.0
+    if BRANCHDENSITY < 0.0:
+        BRANCHDENSITY = 0.0
+    if MAPHEIGHTLIMIT not in [True, False]:
+        if VERBOSE: print("MAPHEIGHTLIMIT not set correctly, using False")
+        MAPHEIGHTLIMIT = False
+    if LIGHTTREE not in [0, 1, 2, 4]:
+        if VERBOSE: print("LIGHTTREE not set correctly, using 0 for no torches")
+        LIGHTTREE = 0
+    # assemble the material dictionaries
+    WOODINFO = WOODMAT.copy()
+    LEAFINFO = LEAFMAT.copy()
+    LIGHTINFO = LIGHTMAT.copy()
+    TRUNKFILLINFO = TRUNKFILLMAT.copy()
+
+_validate()
 
 
 # some handy functions
@@ -1065,7 +1075,7 @@ class MangroveTree(RoundTree):
         return val
 
 
-def planttrees(mcmap: mcInterface.SaveFile, treelist: list):
+def planttrees(mcmap: mcInterface.SaveFile, treelist: list, origin=None):
     """Take mcmap and add trees to random locations on the surface to treelist.
     """
     assert isinstance(mcmap, mcInterface.SaveFile)
@@ -1088,7 +1098,11 @@ def planttrees(mcmap: mcInterface.SaveFile, treelist: list):
     else:
         shape_choices = [SHAPE]
 
-    X, Y, Z = mcmap.get_player_pos()
+    if origin is None:
+        X, Y, Z = mcmap.get_player_pos()
+    else:
+        origin = mcmap.resolve_origin(origin)
+        X, Y, Z = origin[0], origin[1], origin[2]
 
     if VERBOSEINDIVIDUALS: print('Tree Locations: x, y, z, tree height')
     tries = 0
@@ -1216,30 +1230,41 @@ def processtrees(mcmap: mcInterface.SaveFile, treelist):
             i += 1
 
 
-def main(the_map):
-    """create the trees
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map, origin=None, **settings):
+    """create the trees on an open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and the number of trees planted.
     """
-    treelist = []
-    if VERBOSE: print("Planting new trees")
-    planttrees(the_map, treelist)
-    if VERBOSE: print("Processing tree changes")
-    processtrees(the_map, treelist)
-    number_of_trees = len(treelist)
-    if FOLIAGE:
-        if VERBOSE: print("Generating foliage for " + str(number_of_trees) + " trees.")
-        for treenum in range(number_of_trees):
-            cluster_num = treelist[treenum].makefoliage(the_map)
-            if VERBOSEINDIVIDUALS:
-                print("Tree " + str(treenum) + " with " + str(cluster_num) + " Foliage Clusters Complete")
-        if VERBOSE: print('Foliage completed')
-    if WOOD:
-        if VERBOSE: print("Generating trunks, roots, and branches for " + str(number_of_trees) + " trees.")
-        for treenum in range(number_of_trees):
-            cluster_num = treelist[treenum].maketrunk(the_map)
-            if VERBOSEINDIVIDUALS:
-                print("Tree " + str(treenum) + " with " + str(cluster_num) + " Roots and Branches Complete")
-        if VERBOSE: print('Trunks, roots, and branches completed')
-    return None
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        treelist = []
+        if VERBOSE: print("Planting new trees")
+        planttrees(the_map, treelist, origin)
+        if VERBOSE: print("Processing tree changes")
+        processtrees(the_map, treelist)
+        number_of_trees = len(treelist)
+        if FOLIAGE:
+            if VERBOSE: print("Generating foliage for " + str(number_of_trees) + " trees.")
+            for treenum in range(number_of_trees):
+                cluster_num = treelist[treenum].makefoliage(the_map)
+                if VERBOSEINDIVIDUALS:
+                    print("Tree " + str(treenum) + " with " + str(cluster_num) + " Foliage Clusters Complete")
+            if VERBOSE: print('Foliage completed')
+        if WOOD:
+            if VERBOSE: print("Generating trunks, roots, and branches for " + str(number_of_trees) + " trees.")
+            for treenum in range(number_of_trees):
+                cluster_num = treelist[treenum].maketrunk(the_map)
+                if VERBOSEINDIVIDUALS:
+                    print("Tree " + str(treenum) + " with " + str(cluster_num) + " Roots and Branches Complete")
+            if VERBOSE: print('Trunks, roots, and branches completed')
+        return {'origin': origin, 'trees': number_of_trees}
 
 
 def standalone():

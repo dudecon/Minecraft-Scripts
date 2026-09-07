@@ -7,6 +7,9 @@ cave systems near the player, then:
 - digs procedural access shafts down to deeper systems
 - tunnels between nearby cave systems that do not already connect
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 """
@@ -221,74 +224,82 @@ VERBOSEINDIVIDUALS = False
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
+def _validate():
+    global RADIUS, MOUTH_COUNT, SHAFT_COUNT, CONNECT_COUNT, TUNNEL_RADIUS
+    global MOUTH_RADIUS, SHAFT_STYLE, SAMPLE_SPACING, SAMPLE_Y, MIN_CAVE_SIZE
+    global MOUTH_MAX_DEPTH, MOUTH_MIN_SLOPE, SHAFT_MIN_DEPTH, SHAFT_MAX_DEPTH
+    global CONNECT_RANGE, MIN_COVER, WANDER, LANDING_SPACING
+    global MIN_FEATURE_SPACING, MAX_TRIES, MIN_SURFACE_COVER, LADDERS
+    global INCLUDE_WATER_CAVES, ALLOW_UNDERWATER, SEAL_LAVA, PLACE_MOSS
+    global LIGHTS, VERBOSE, VERBOSEINDIVIDUALS
+    RADIUS = int(RADIUS)
+    if RADIUS < 8:
+        if VERBOSE:
+            print("RADIUS is too small, setting it to 8")
+        RADIUS = 8
+    MOUTH_COUNT = int(MOUTH_COUNT)
+    if MOUTH_COUNT < 0:
+        MOUTH_COUNT = 0
+    SHAFT_COUNT = int(SHAFT_COUNT)
+    if SHAFT_COUNT < 0:
+        SHAFT_COUNT = 0
+    CONNECT_COUNT = int(CONNECT_COUNT)
+    if CONNECT_COUNT < 0:
+        CONNECT_COUNT = 0
+    if TUNNEL_RADIUS < 1.0:
+        TUNNEL_RADIUS = 1.0
+    if MOUTH_RADIUS < TUNNEL_RADIUS:
+        MOUTH_RADIUS = TUNNEL_RADIUS
+    if SHAFT_STYLE not in ("winding", "spiral", "stair", "drop", "procedural"):
+        if VERBOSE:
+            print("SHAFT_STYLE not set correctly, using 'procedural'.")
+        SHAFT_STYLE = "procedural"
+    if SAMPLE_SPACING < 1:
+        SAMPLE_SPACING = 1
+    if SAMPLE_Y < 1:
+        SAMPLE_Y = 1
+    if MIN_CAVE_SIZE < 1:
+        MIN_CAVE_SIZE = 1
+    if MOUTH_MAX_DEPTH < 4:
+        MOUTH_MAX_DEPTH = 4
+    if MOUTH_MIN_SLOPE < 0:
+        MOUTH_MIN_SLOPE = 0
+    if SHAFT_MIN_DEPTH < 4:
+        SHAFT_MIN_DEPTH = 4
+    if SHAFT_MAX_DEPTH < SHAFT_MIN_DEPTH:
+        SHAFT_MAX_DEPTH = SHAFT_MIN_DEPTH
+    if CONNECT_RANGE < 8:
+        CONNECT_RANGE = 8
+    if MIN_COVER < 2:
+        MIN_COVER = 2
+    if WANDER < 0:
+        WANDER = 0
+    if LANDING_SPACING < 4:
+        LANDING_SPACING = 4
+    if MIN_FEATURE_SPACING < 4:
+        MIN_FEATURE_SPACING = 4
+    if MAX_TRIES < 10:
+        MAX_TRIES = 10
+    if MIN_SURFACE_COVER < 1:
+        MIN_SURFACE_COVER = 1
+    if LADDERS not in (True, False):
+        LADDERS = True
+    if INCLUDE_WATER_CAVES not in (True, False):
+        INCLUDE_WATER_CAVES = False
+    if ALLOW_UNDERWATER not in (True, False):
+        ALLOW_UNDERWATER = False
+    if SEAL_LAVA not in (True, False):
+        SEAL_LAVA = True
+    if PLACE_MOSS not in (True, False):
+        PLACE_MOSS = True
+    if LIGHTS not in (True, False):
+        LIGHTS = False
+    if VERBOSE not in (True, False):
+        VERBOSE = False
+    if VERBOSEINDIVIDUALS not in (True, False):
+        VERBOSEINDIVIDUALS = False
 
-RADIUS = int(RADIUS)
-if RADIUS < 8:
-    if VERBOSE:
-        print("RADIUS is too small, setting it to 8")
-    RADIUS = 8
-MOUTH_COUNT = int(MOUTH_COUNT)
-if MOUTH_COUNT < 0:
-    MOUTH_COUNT = 0
-SHAFT_COUNT = int(SHAFT_COUNT)
-if SHAFT_COUNT < 0:
-    SHAFT_COUNT = 0
-CONNECT_COUNT = int(CONNECT_COUNT)
-if CONNECT_COUNT < 0:
-    CONNECT_COUNT = 0
-if TUNNEL_RADIUS < 1.0:
-    TUNNEL_RADIUS = 1.0
-if MOUTH_RADIUS < TUNNEL_RADIUS:
-    MOUTH_RADIUS = TUNNEL_RADIUS
-if SHAFT_STYLE not in ("winding", "spiral", "stair", "drop", "procedural"):
-    if VERBOSE:
-        print("SHAFT_STYLE not set correctly, using 'procedural'.")
-    SHAFT_STYLE = "procedural"
-if SAMPLE_SPACING < 1:
-    SAMPLE_SPACING = 1
-if SAMPLE_Y < 1:
-    SAMPLE_Y = 1
-if MIN_CAVE_SIZE < 1:
-    MIN_CAVE_SIZE = 1
-if MOUTH_MAX_DEPTH < 4:
-    MOUTH_MAX_DEPTH = 4
-if MOUTH_MIN_SLOPE < 0:
-    MOUTH_MIN_SLOPE = 0
-if SHAFT_MIN_DEPTH < 4:
-    SHAFT_MIN_DEPTH = 4
-if SHAFT_MAX_DEPTH < SHAFT_MIN_DEPTH:
-    SHAFT_MAX_DEPTH = SHAFT_MIN_DEPTH
-if CONNECT_RANGE < 8:
-    CONNECT_RANGE = 8
-if MIN_COVER < 2:
-    MIN_COVER = 2
-if WANDER < 0:
-    WANDER = 0
-if LANDING_SPACING < 4:
-    LANDING_SPACING = 4
-if MIN_FEATURE_SPACING < 4:
-    MIN_FEATURE_SPACING = 4
-if MAX_TRIES < 10:
-    MAX_TRIES = 10
-if MIN_SURFACE_COVER < 1:
-    MIN_SURFACE_COVER = 1
-if LADDERS not in (True, False):
-    LADDERS = True
-if INCLUDE_WATER_CAVES not in (True, False):
-    INCLUDE_WATER_CAVES = False
-if ALLOW_UNDERWATER not in (True, False):
-    ALLOW_UNDERWATER = False
-if SEAL_LAVA not in (True, False):
-    SEAL_LAVA = True
-if PLACE_MOSS not in (True, False):
-    PLACE_MOSS = True
-if LIGHTS not in (True, False):
-    LIGHTS = False
-if VERBOSE not in (True, False):
-    VERBOSE = False
-if VERBOSEINDIVIDUALS not in (True, False):
-    VERBOSEINDIVIDUALS = False
+_validate()
 
 # Map height limits
 # gets clobbered from the map height data on map import
@@ -1032,14 +1043,14 @@ class CaveConnector(CaveFeature):
         return 1
 
 
-def find_caves(mcmap):
-    """Sample the volume around the player and cluster roofed-in air.
+def find_caves(mcmap, origin=None):
+    """Sample the volume around origin and cluster roofed-in air.
 
     Returns a list of CaveSystem objects.
     """
     assert isinstance(mcmap, mcInterface.SaveFile)
-    player = mcmap.get_player_block()
-    px, pz = player[0], player[2]
+    origin = mcmap.resolve_origin(origin)
+    px, pz = origin[0], origin[2]
     spacing = SAMPLE_SPACING
     rad = int(RADIUS)
     rad_sqr = rad * rad
@@ -1166,11 +1177,12 @@ def mouth_site_for_system(system, mcmap):
     return best
 
 
-def shaft_site_for_system(system, mcmap):
+def shaft_site_for_system(system, mcmap, origin=None):
     """Pick a surface top and an underground target for a shaft, or None."""
     # aim for a high, roomy-looking sample, but still deep enough
     ranked = sorted(system.points, key=lambda p: p[1], reverse=True)
-    player = mcmap.get_player_block()
+    origin = mcmap.resolve_origin(origin)
+    player = origin
     for cave in ranked[:20]:
         cx, cy, cz = cave
         # search a small neighborhood on the surface for a dry column
@@ -1225,14 +1237,14 @@ def select_mouths(systems, mcmap):
     return mouths, taken
 
 
-def select_shafts(systems, mcmap, taken):
+def select_shafts(systems, mcmap, taken, origin=None):
     """Choose up to SHAFT_COUNT shafts for systems that did not get a mouth."""
     shafts = []
     scored = []
     for system in systems:
         if system.has_mouth:
             continue
-        site = shaft_site_for_system(system, mcmap)
+        site = shaft_site_for_system(system, mcmap, origin)
         if site is None:
             continue
         top, cave_pt, score = site
@@ -1287,55 +1299,70 @@ def select_connections(systems):
     return connectors
 
 
-def main(the_map):
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map, origin=None, **settings):
     """Find caves, open mouths and shafts, and connect systems.
+
+    Runs on an open save. Does not load or save.
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and feature counts.
     """
-    if VERBOSE:
-        print("Surveying cave systems")
-    systems = find_caves(the_map)
-    if not systems:
-        print("No cave systems found in radius {0}. Nothing to do.".format(RADIUS))
-        print("Try a larger RADIUS, a smaller MIN_CAVE_SIZE, or stand over some caves.")
-        return None
-
-    mouths = []
-    shafts = []
-    if MOUTH_COUNT:
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
         if VERBOSE:
-            print("Choosing cave mouths")
-        mouths, taken = select_mouths(systems, the_map)
-    else:
-        taken = []
-    if SHAFT_COUNT:
+            print("Surveying cave systems")
+        systems = find_caves(the_map, origin)
+        if not systems:
+            print("No cave systems found in radius {0}. Nothing to do.".format(RADIUS))
+            print("Try a larger RADIUS, a smaller MIN_CAVE_SIZE, or stand over some caves.")
+            return {'origin': origin, 'systems': 0, 'mouths': 0, 'shafts': 0, 'connections': 0}
+
+        mouths = []
+        shafts = []
+        if MOUTH_COUNT:
+            if VERBOSE:
+                print("Choosing cave mouths")
+            mouths, taken = select_mouths(systems, the_map)
+        else:
+            taken = []
+        if SHAFT_COUNT:
+            if VERBOSE:
+                print("Choosing access shafts")
+            shafts = select_shafts(systems, the_map, taken, origin)
+        connectors = []
+        if CONNECT_COUNT:
+            if VERBOSE:
+                print("Choosing cave connections")
+            connectors = select_connections(systems)
+
+        features = mouths + shafts + connectors
+        if not features:
+            print("Found {0} cave systems, but no mouths, shafts, or connections to dig.".format(
+                len(systems)))
+            print("They may already open to the surface, be underwater, or sit too far apart.")
+            return {'origin': origin, 'systems': len(systems),
+                    'mouths': 0, 'shafts': 0, 'connections': 0}
+
         if VERBOSE:
-            print("Choosing access shafts")
-        shafts = select_shafts(systems, the_map, taken)
-    connectors = []
-    if CONNECT_COUNT:
-        if VERBOSE:
-            print("Choosing cave connections")
-        connectors = select_connections(systems)
+            print("Preparing {0} features".format(len(features)))
+        for feature in features:
+            feature.prepare(the_map)
 
-    features = mouths + shafts + connectors
-    if not features:
-        print("Found {0} cave systems, but no mouths, shafts, or connections to dig.".format(
-            len(systems)))
-        print("They may already open to the surface, be underwater, or sit too far apart.")
-        return None
-
-    if VERBOSE:
-        print("Preparing {0} features".format(len(features)))
-    for feature in features:
-        feature.prepare(the_map)
-
-    if VERBOSE or not VERBOSEINDIVIDUALS:
-        print("Carving {0} mouths, {1} shafts, {2} connections".format(
+        if VERBOSE or not VERBOSEINDIVIDUALS:
+            print("Carving {0} mouths, {1} shafts, {2} connections".format(
+                len(mouths), len(shafts), len(connectors)))
+        for feature in features:
+            feature.carve(the_map)
+        print("Opened {0} mouths, dug {1} shafts, linked {2} cave systems.".format(
             len(mouths), len(shafts), len(connectors)))
-    for feature in features:
-        feature.carve(the_map)
-    print("Opened {0} mouths, dug {1} shafts, linked {2} cave systems.".format(
-        len(mouths), len(shafts), len(connectors)))
-    return None
+        return {'origin': origin, 'systems': len(systems),
+                'mouths': len(mouths), 'shafts': len(shafts),
+                'connections': len(connectors)}
 
 
 def standalone():

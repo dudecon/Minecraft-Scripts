@@ -4,6 +4,9 @@
 The wall follows the terrain, with crenellated battlements, a walkway
 along the inside, and occasional stairs up from the courtyard.
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 """
@@ -115,38 +118,42 @@ VERBOSE = False
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
+def _validate():
+    global RADIUS, HEIGHT, FLATTENING, WALL_THICKNESS
+    global MERLON_WIDTH, CRENEL_WIDTH, MERLON_HEIGHT, CRENEL_HEIGHT
+    global STAIR_SPACING, FOUNDATION, WALL_SMOOTHING, CRENELLATED, VERBOSE
+    if RADIUS < 1:
+        print("RADIUS is less than 1, setting it to 5")
+        RADIUS = 5
+    if HEIGHT < 1:
+        print("HEIGHT is less than 1, setting it to 5")
+        HEIGHT = 5
+    if FLATTENING < 1:
+        print("FLATTENING is less than one, setting to one")
+        FLATTENING = 1
+    WALL_THICKNESS = int(WALL_THICKNESS)
+    if WALL_THICKNESS < 1:
+        WALL_THICKNESS = 1
+    if MERLON_WIDTH < 1:
+        MERLON_WIDTH = 1
+    if CRENEL_WIDTH < 0:
+        CRENEL_WIDTH = 0
+    if MERLON_HEIGHT < 0:
+        MERLON_HEIGHT = 0
+    if CRENEL_HEIGHT < 0:
+        CRENEL_HEIGHT = 0
+    if STAIR_SPACING < 4:
+        STAIR_SPACING = 4
+    if FOUNDATION < 0:
+        FOUNDATION = 0
+    if WALL_SMOOTHING < 0:
+        WALL_SMOOTHING = 0
+    if CRENELLATED not in (True, False):
+        CRENELLATED = True
+    if VERBOSE not in (True, False):
+        VERBOSE = False
 
-if RADIUS < 1:
-    print("RADIUS is less than 1, setting it to 5")
-    RADIUS = 5
-if HEIGHT < 1:
-    print("HEIGHT is less than 1, setting it to 5")
-    HEIGHT = 5
-if FLATTENING < 1:
-    print("FLATTENING is less than one, setting to one")
-    FLATTENING = 1
-WALL_THICKNESS = int(WALL_THICKNESS)
-if WALL_THICKNESS < 1:
-    WALL_THICKNESS = 1
-if MERLON_WIDTH < 1:
-    MERLON_WIDTH = 1
-if CRENEL_WIDTH < 0:
-    CRENEL_WIDTH = 0
-if MERLON_HEIGHT < 0:
-    MERLON_HEIGHT = 0
-if CRENEL_HEIGHT < 0:
-    CRENEL_HEIGHT = 0
-if STAIR_SPACING < 4:
-    STAIR_SPACING = 4
-if FOUNDATION < 0:
-    FOUNDATION = 0
-if WALL_SMOOTHING < 0:
-    WALL_SMOOTHING = 0
-if CRENELLATED not in (True, False):
-    CRENELLATED = True
-if VERBOSE not in (True, False):
-    VERBOSE = False
+_validate()
 
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
@@ -662,22 +669,32 @@ class WalledArea(object):
         print("Built {0} wall columns, {1} stair runs to the walkway".format(
             len(columns), n_stairs))
 
-def main(the_map: mcInterface.SaveFile):
-    """Load the file, do the stuff, and save the new file.
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map: mcInterface.SaveFile, origin=None, **settings):
+    """Build the wall on an already-open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and interior count.
     """
-    print("Finding the walled area")
-    position = the_map.get_player_block()
-    plot = WalledArea(the_map)
-    plot.origin_square(position[0], position[2])
-    for i in range(int(RADIUS)+2):
-        plot.grow_all()
-        if VERBOSE:
-            print("Expansion " + str(i + 1) + " of " + str(RADIUS) + " done")
-    num_of_squares = len(plot.interior)
-    print("found " + str(num_of_squares) + " included block columns")
-    print("Flattening courtyard and raising crenellated walls")
-    plot.create()
-    return None
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        print("Finding the walled area")
+        plot = WalledArea(the_map)
+        plot.origin_square(origin[0], origin[2])
+        for i in range(int(RADIUS)+2):
+            plot.grow_all()
+            if VERBOSE:
+                print("Expansion " + str(i + 1) + " of " + str(RADIUS) + " done")
+        num_of_squares = len(plot.interior)
+        print("found " + str(num_of_squares) + " included block columns")
+        print("Flattening courtyard and raising crenellated walls")
+        plot.create()
+        return {'origin': origin, 'interior': num_of_squares}
 
 
 def standalone():

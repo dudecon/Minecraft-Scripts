@@ -1,6 +1,9 @@
 # Version 9
 """This takes a base MineCraft level and adds boulders and craters.
 
+Import and call main(the_map, origin=..., **settings) to use as a module;
+main does not save. standalone() loads, runs, and writes.
+
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 """
@@ -153,41 +156,54 @@ EJECTA_MATERIALS = (mcInterface.blocktype_stones + mcInterface.blocktype_soils +
 # False leaves the extra data out
 VERBOSE = True
 
+# Place features on the current surface?
+# True find the solid surface at each location (default, same as standalone)
+# False use the origin Y instead. Use this to crater under a floating mountain.
+ON_SURFACE = True
+
 ##############################################################
 #  Don't edit below here unless you know what you are doing  #
 ##############################################################
 
-# input filtering
-if FEATURE_NUM < 0:
-    print("If you wanted less than one, you wouldn't have run the script.")
-    print("Assuming one feature")
-    FEATURE_NUM = 1
+def _validate():
+    global FEATURE_NUM, RADIUS, BOULDER_SIZE, BOULDER_RANDOMIZATION, BOULDER_TREASURE
+    global CRATERS, CRATER_DEPTH, DEPTH_RANDOMIZATION, ON_SURFACE, VERBOSE
+    if FEATURE_NUM < 0:
+        print("If you wanted less than one, you wouldn't have run the script.")
+        print("Assuming one feature")
+        FEATURE_NUM = 1
+    if RADIUS < 0:
+        print("RADIUS was negative, setting to 0")
+        RADIUS = 0
+    if BOULDERS:
+        if BOULDER_SIZE < 1:
+            BOULDER_SIZE = 1
+        if BOULDER_RANDOMIZATION < 0:
+            BOULDER_RANDOMIZATION = 0
+        if BOULDER_RANDOMIZATION > BOULDER_SIZE:
+            BOULDER_RANDOMIZATION = BOULDER_SIZE
+        if BOULDER_TREASURE < 0:
+            BOULDER_TREASURE = 0
+        elif BOULDER_TREASURE > 1:
+            BOULDER_TREASURE = 1
+        if FLYING_BOULDERS or BURIED_BOULDERS:
+            CRATERS = False
+    if CRATERS:
+        if CRATER_DEPTH < 1:
+            CRATER_DEPTH = 1
+        if DEPTH_RANDOMIZATION < 0:
+            DEPTH_RANDOMIZATION = 0
+        if DEPTH_RANDOMIZATION > CRATER_DEPTH:
+            DEPTH_RANDOMIZATION = CRATER_DEPTH
+    if ON_SURFACE not in (True, False):
+        ON_SURFACE = True
+    if VERBOSE not in (True, False):
+        VERBOSE = True
+    if not (BOULDERS or CRATERS):
+        print("wait, you want neither boulders nor craters?")
+        print("Um, okay... doing nothing")
 
-if BOULDERS:
-    if BOULDER_SIZE < 1:
-        BOULDER_SIZE = 1
-    if BOULDER_RANDOMIZATION < 0:
-        BOULDER_RANDOMIZATION = 0
-    if BOULDER_RANDOMIZATION > BOULDER_SIZE:
-        BOULDER_RANDOMIZATION = BOULDER_SIZE
-    if BOULDER_TREASURE < 0:
-        BOULDER_TREASURE = 0
-    elif BOULDER_TREASURE > 1:
-        BOULDER_TREASURE = 1
-    if FLYING_BOULDERS or BURIED_BOULDERS:
-        CRATERS = False
-
-if CRATERS:
-    if CRATER_DEPTH < 1:
-        CRATER_DEPTH = 1
-    if DEPTH_RANDOMIZATION < 0:
-        DEPTH_RANDOMIZATION = 0
-    if DEPTH_RANDOMIZATION > CRATER_DEPTH:
-        DEPTH_RANDOMIZATION = CRATER_DEPTH
-
-if not (BOULDERS or CRATERS):
-    print("wait, you want neither boulders nor craters?")
-    print("Um, okay... doing nothing")
+_validate()
 
 MAP_HEIGHT: int = mcInterface.SaveFile.map_height
 MAP_BOTTOM: int = mcInterface.SaveFile.map_bottom
@@ -498,14 +514,14 @@ class Crater(SphereObject):
         if log: return block_log
 
 
-def selectlocations(mcmap):
+def selectlocations(mcmap, origin=None):
     """return a list of locations to put the objects on the surface of the map.
     """
     assert isinstance(mcmap, mcInterface.SaveFile)
-    player_pos = mcmap.get_player_pos()
-    position = [int(i) for i in player_pos]
-    X = position[0]
-    Z = position[2]
+    origin = mcmap.resolve_origin(origin)
+    X = origin[0]
+    Y = origin[1]
+    Z = origin[2]
     featurelocs = []
     if VERBOSE: print('Locations: x, y, z')
     while len(featurelocs) < FEATURE_NUM:
@@ -517,11 +533,15 @@ def selectlocations(mcmap):
         x = X + int(rad * sin(ang) + .5)
         z = Z + int(rad * cos(ang) + .5)
         # check to see if this location is suitable
-        y_top = get_solid_surface(x, z, mcmap)
-        if y_top is None:
+        surface = get_solid_surface(x, z, mcmap)
+        if surface is None:
             # this location is off the map!
             # Try somewhere else
             continue
+        if ON_SURFACE:
+            y_top = surface
+        else:
+            y_top = Y
         if VERBOSE: print("feature location", x, z)
         featurelocs.append({'x': x, 'z': z, 'y': y_top})
     return featurelocs
@@ -538,8 +558,11 @@ def set_height(loc, mcmap: mcInterface.SaveFile):
             ychoices += [i for i in range(y_top + 1, MAP_HEIGHT)]
         y = choice(ychoices)
     else:
-        y = get_solid_surface(loc['x'], loc['z'],mcmap)
-        if y is None: return None
+        if ON_SURFACE:
+            y = get_solid_surface(loc['x'], loc['z'], mcmap)
+            if y is None: return None
+        else:
+            y = y_top
         if 'boulder' not in loc:
             depth = CRATER_DEPTH + 2 * DEPTH_RANDOMIZATION * (0.5 - random())
             y += int(-depth)
@@ -550,36 +573,51 @@ def set_height(loc, mcmap: mcInterface.SaveFile):
     loc['y'] = y
 
 
-def main(the_map):
-    """create the craters and boulders.
+def configure(**settings):
+    """Permanently set this script's options (the uppercase names above)."""
+    mcInterface.apply_settings(globals(), settings)
+
+
+def main(the_map, origin=None, **settings):
+    """create the craters and boulders on an open save. Does not load or save.
+
+    origin: None (player), (x, z), or (x, y, z)
+    **settings: temporary overrides for this call, restored afterward
+    Returns a dict with origin and the feature location list.
     """
+    with mcInterface.temporary_settings(globals(), settings):
+        origin = the_map.resolve_origin(origin)
+        if not (BOULDERS or CRATERS):
+            print("wait, you want neither boulders nor craters?")
+            print("Um, okay... doing nothing")
+            return {'origin': origin, 'locations': []}
 
-    print("Selecting locations")
-    locations = selectlocations(the_map)
+        print("Selecting locations")
+        locations = selectlocations(the_map, origin)
 
-    if CRATERS:
-        print('Making craters')
-        for loc in locations:
-            print(f'Excavating {loc}')
-            set_height(loc, the_map)
-            if 'depth' not in loc: continue
-            thiscrater = Crater(loc)
-            thiscrater.create(the_map)
-
-    if BOULDERS:
-        print('Making boulders ')
-        for loc in locations:
-            if not CRATERS:
+        if CRATERS:
+            print('Making craters')
+            for loc in locations:
+                print(f'Excavating {loc}')
                 set_height(loc, the_map)
-                print(f'Boulder at {loc}')
-            else:
-                if 'depth' not in loc: continue  # this location was not populated
-                loc['boulder'] = True
-                set_height(loc, the_map)
-            thisboulder = Boulder(loc)
-            thisboulder.create(the_map)
-        print(' done')
-    return None
+                if 'depth' not in loc: continue
+                thiscrater = Crater(loc)
+                thiscrater.create(the_map)
+
+        if BOULDERS:
+            print('Making boulders ')
+            for loc in locations:
+                if not CRATERS:
+                    set_height(loc, the_map)
+                    print(f'Boulder at {loc}')
+                else:
+                    if 'depth' not in loc: continue  # this location was not populated
+                    loc['boulder'] = True
+                    set_height(loc, the_map)
+                thisboulder = Boulder(loc)
+                thisboulder.create(the_map)
+            print(' done')
+        return {'origin': origin, 'locations': locations}
 
 
 def standalone():
