@@ -93,8 +93,15 @@ def get_chunks(the_map, origin=None):
         all_chunks.append(possible_chunk)
     return all_chunks
 
+def _tally(counts, name, n=1):
+    if n:
+        counts[name] = counts.get(name, 0) + n
+
+
 def replace_section_materials(section, find, replace, fraction = 1):
-    if 'block_states' not in section: return
+    """Replace matching blocks. Return a dict of {block_name: count} removed."""
+    extracted = {}
+    if 'block_states' not in section: return extracted
     block_states = section['block_states'].payload
     palette = block_states['palette'].payload
     if 'data' in block_states:
@@ -108,33 +115,48 @@ def replace_section_materials(section, find, replace, fraction = 1):
     #search the pallete for the find values and make a list of indicies
     # search the pallete for the replace values, use the first one found
     find_indicies = []
+    find_names = {}
     replaceidx = -1
     for i in range(len(palette)):
         block_name = palette[i].payload["Name"].payload.replace("minecraft:",'')
         if block_name in find:
             find_indicies.append(i)
+            find_names[i] = block_name
         if replaceidx == -1 and block_name in replace:
             replaceidx = i
     # abort if there is nothing to find and replace
-    if len(find_indicies) == 0: return
+    if len(find_indicies) == 0: return extracted
     if replaceidx == -1:
         # if no replacement material is found, add a new pallete entry
         mcInterface.SaveFile.add_block_data(mcInterface.SaveFile,palette, {'B':'minecraft:'+replace[0]})
         replaceidx = len(palette) - 1
     if fraction == 1:
+        for idx in data.unpacked:
+            if idx in find_names:
+                _tally(extracted, find_names[idx])
         # if fraction is 1, do a pallete swap
         newpalletdata = palette[replaceidx]
         for i in find_indicies:
             palette[i] = newpalletdata
     else:
-        # list comprehension find and replace and clobber the section block list
-        data.unpacked = [replaceidx if (idx in find_indicies and random() < fraction)
-                         else idx for idx in data.unpacked]
+        new_unpacked = []
+        for idx in data.unpacked:
+            if idx in find_names and random() < fraction:
+                _tally(extracted, find_names[idx])
+                new_unpacked.append(replaceidx)
+            else:
+                new_unpacked.append(idx)
+        data.unpacked = new_unpacked
+    return extracted
 
 def replace_chunk_materials(chunk, find, replace, fraction):
+    extracted = {}
     sections = chunk.tags[0].payload['sections'].payload
     for section in sections:
-        replace_section_materials(section.payload, find, replace, fraction)
+        got = replace_section_materials(section.payload, find, replace, fraction)
+        for name, n in got.items():
+            _tally(extracted, name, n)
+    return extracted
 
 def configure(**settings):
     """Permanently set this script's options (the uppercase names above)."""
@@ -146,16 +168,22 @@ def main(the_map, origin=None, **settings):
 
     origin: None (player), (x, z), or (x, y, z)
     **settings: temporary overrides for this call, restored afterward
-    Returns a dict with origin and the number of chunks touched.
+    Returns a dict with origin, chunks touched, and extracted {name: count}.
     """
     with mcInterface.temporary_settings(globals(), settings):
         origin = the_map.resolve_origin(origin)
         print("Finding the chunks")
         all_chunks = get_chunks(the_map, origin)
         print("Replacing the materials")
+        extracted = {}
         for c in all_chunks:
-            replace_chunk_materials(c, ALTER, ENVIRONMENT, FRACTION)
-        return {'origin': origin, 'chunks': len(all_chunks)}
+            got = replace_chunk_materials(c, ALTER, ENVIRONMENT, FRACTION)
+            for name, n in got.items():
+                _tally(extracted, name, n)
+        total = sum(extracted.values())
+        if total:
+            print("Extracted {0} blocks of {1} types".format(total, len(extracted)))
+        return {'origin': origin, 'chunks': len(all_chunks), 'extracted': extracted}
 
 
 def standalone():
