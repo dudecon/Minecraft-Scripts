@@ -1,10 +1,11 @@
-# Version 1.19
+# Version 1.20
 """an interface module to allow read/write access to Minecraft save files
 """
 
 # Read and write are implemented now.
 # Works with Minecraft 1.13 and later, including the 26.1+ save layout
 # (players/data, dimensions/minecraft/<dim>/region)
+# Block entities (chests and other tile NBT) can be read and written.
 # 
 # Paul Spooner
 # www.peripheralarbor.com
@@ -578,6 +579,245 @@ class NbtNew(NbtData):
         pass
 
 
+# 21w43a / 1.18: TileEntities renamed to block_entities
+DATAVERSION_BLOCK_ENTITIES = 2844
+# 1.20.5: item Count/tag became count/components
+DATAVERSION_ITEM_COMPONENTS = 3837
+
+
+def namespaced_id(name):
+    """Return a namespaced id, defaulting to minecraft:"""
+    if name is None or name == '':
+        return name
+    name = str(name)
+    if ':' in name:
+        return name
+    return 'minecraft:' + name
+
+
+def new_tag(tag_type, name='', payload=None, named=None, contents_type=None):
+    """Create a new NBT tag.
+    tag_type : integer NBT id (1-12)
+    name : tag name; empty for unnamed list entries
+    payload : native python value for this tag
+    named : whether the tag encodes a name; defaults to True when name is set
+    contents_type : for TAG_List, the contained tag id
+    """
+    tag = tag_list[tag_type](NbtNew(), named=False)
+    if named is None:
+        named = name != ''
+    tag.name = name
+    tag.named = named
+    if payload is not None:
+        tag.payload = payload
+    if tag_type == 9:
+        if contents_type is not None:
+            tag.contents_type = contents_type
+        elif tag.payload:
+            tag.contents_type = tag.payload[0].tag_type
+    return tag
+
+
+def nbt_to_python(tag):
+    """Unwrap an NBT tag into plain python (dicts, lists, and primitives)."""
+    if tag is None:
+        return None
+    if isinstance(tag, NbtTag10):
+        return {k: nbt_to_python(v) for k, v in tag.payload.items()}
+    if isinstance(tag, NbtTag9):
+        return [nbt_to_python(v) for v in tag.payload]
+    if isinstance(tag, NbtTagBase):
+        return tag.payload
+    return tag
+
+
+def infer_tag_type(value):
+    """Guess an NBT tag id from a python value."""
+    if isinstance(value, NbtTagBase):
+        return value.tag_type
+    if isinstance(value, bool):
+        return 1
+    if isinstance(value, int):
+        if value > 2147483647 or value < -2147483648:
+            return 4
+        return 3
+    if isinstance(value, float):
+        return 6
+    if isinstance(value, str):
+        return 8
+    if isinstance(value, dict):
+        return 10
+    if isinstance(value, (list, tuple)):
+        return 9
+    if isinstance(value, (bytes, bytearray)):
+        return 7
+    raise TypeError('Cannot infer NBT type for %r' % (type(value),))
+
+
+def python_to_nbt(value, name='', named=True, tag_type=None, contents_type=None):
+    """Build an NBT tag from a python value.
+    dict -> TAG_Compound, list -> TAG_List (or array if tag_type is 7/11/12),
+    str -> TAG_String, bool -> TAG_Byte, int -> TAG_Int (or TAG_Long if huge),
+    float -> TAG_Double. Pass an existing NBT tag to use it as-is.
+    """
+    if isinstance(value, NbtTagBase):
+        value.name = name
+        value.named = named
+        return value
+    if tag_type is None:
+        tag_type = infer_tag_type(value)
+    if tag_type == 10:
+        payload = {}
+        for k, v in value.items():
+            payload[k] = python_to_nbt(v, name=k, named=True)
+        return new_tag(10, name, payload, named)
+    if tag_type == 9:
+        items = []
+        inferred_ct = contents_type
+        for v in value:
+            child = python_to_nbt(v, name='', named=False)
+            items.append(child)
+            if inferred_ct is None:
+                inferred_ct = child.tag_type
+        if inferred_ct is None:
+            inferred_ct = 0
+        return new_tag(9, name, items, named, contents_type=inferred_ct)
+    if tag_type in (7, 11, 12):
+        return new_tag(tag_type, name, list(value), named)
+    if tag_type == 8:
+        return new_tag(8, name, str(value), named)
+    if tag_type in (1, 2, 3, 4) and not isinstance(value, bool):
+        return new_tag(tag_type, name, int(value), named)
+    if tag_type in (5, 6):
+        return new_tag(tag_type, name, float(value), named)
+    if tag_type == 1 and isinstance(value, bool):
+        return new_tag(1, name, 1 if value else 0, named)
+    return new_tag(tag_type, name, value, named)
+
+
+# block name (no namespace) -> block entity id (no namespace)
+# None means the block is not a block entity
+BLOCK_TO_ENTITY = {
+    'chest': 'chest',
+    'trapped_chest': 'trapped_chest',
+    'barrel': 'barrel',
+    'hopper': 'hopper',
+    'dispenser': 'dispenser',
+    'dropper': 'dropper',
+    'furnace': 'furnace',
+    'blast_furnace': 'blast_furnace',
+    'smoker': 'smoker',
+    'brewing_stand': 'brewing_stand',
+    'campfire': 'campfire',
+    'soul_campfire': 'soul_campfire',
+    'chiseled_bookshelf': 'chiseled_bookshelf',
+    'crafter': 'crafter',
+    'decorated_pot': 'decorated_pot',
+    'jukebox': 'jukebox',
+    'lectern': 'lectern',
+    'beacon': 'beacon',
+    'spawner': 'mob_spawner',
+    'trial_spawner': 'trial_spawner',
+    'vault': 'vault',
+    'bee_nest': 'beehive',
+    'beehive': 'beehive',
+    'enchanting_table': 'enchanting_table',
+    'end_gateway': 'end_gateway',
+    'end_portal': 'end_portal',
+    'ender_chest': 'ender_chest',
+    'command_block': 'command_block',
+    'chain_command_block': 'command_block',
+    'repeating_command_block': 'command_block',
+    'structure_block': 'structure_block',
+    'jigsaw': 'jigsaw',
+    'daylight_detector': 'daylight_detector',
+    'comparator': 'comparator',
+    'sculk_sensor': 'sculk_sensor',
+    'calibrated_sculk_sensor': 'calibrated_sculk_sensor',
+    'sculk_catalyst': 'sculk_catalyst',
+    'sculk_shrieker': 'sculk_shrieker',
+    'bell': 'bell',
+    'conduit': 'conduit',
+    'suspicious_sand': 'brushable_block',
+    'suspicious_gravel': 'brushable_block',
+    'creaking_heart': 'creaking_heart',
+    'moving_piston': 'piston',
+    'test_block': 'test_block',
+    'test_instance_block': 'test_instance_block',
+    'shelf': 'shelf',
+    'copper_golem_statue': 'copper_golem_statue',
+    'copper_chest': 'chest',
+    'shulker_box': 'shulker_box',
+}
+
+CONTAINER_ENTITY_IDS = {
+    'minecraft:chest',
+    'minecraft:trapped_chest',
+    'minecraft:barrel',
+    'minecraft:shulker_box',
+    'minecraft:hopper',
+    'minecraft:dispenser',
+    'minecraft:dropper',
+    'minecraft:furnace',
+    'minecraft:blast_furnace',
+    'minecraft:smoker',
+    'minecraft:brewing_stand',
+    'minecraft:campfire',
+    'minecraft:soul_campfire',
+    'minecraft:chiseled_bookshelf',
+    'minecraft:crafter',
+}
+
+# well-known block-entity field types (used when building NBT from python)
+BLOCK_ENTITY_FIELD_TYPES = {
+    'id': 8, 'x': 3, 'y': 3, 'z': 3, 'keepPacked': 1,
+    'LootTable': 8, 'LootTableSeed': 4,
+    'Command': 8, 'LastOutput': 8, 'auto': 1, 'powered': 1,
+    'conditionMet': 1, 'TrackOutput': 1, 'SuccessCount': 3,
+    'UpdateLastExecution': 1, 'LastExecution': 4,
+    'Delay': 2, 'MaxNearbyEntities': 2, 'RequiredPlayerRange': 2,
+    'SpawnCount': 2, 'MaxSpawnDelay': 2, 'MinSpawnDelay': 2, 'SpawnRange': 2,
+    'primary_effect': 8, 'secondary_effect': 8,
+    'is_waxed': 1, 'TransferCooldown': 3, 'OutputSignal': 3, 'Page': 3,
+    'lit_time_remaining': 2, 'cooking_time_spent': 2,
+    'cooking_total_time': 2, 'lit_total_time': 2,
+    'BrewTime': 2, 'Fuel': 1,
+    'flower_pos': 11, 'exit_portal': 11, 'Target': 11,
+    'CookingTimes': 11, 'CookingTotalTimes': 11, 'disabled_slots': 11,
+    'creaking': 11, 'last_interacted_slot': 3,
+    'ExactTeleport': 1, 'Age': 4,
+}
+
+
+def block_entity_id_for_block(block_name):
+    """Return the namespaced block-entity id for a block, or None."""
+    if not block_name:
+        return None
+    name = str(block_name).split(':')[-1]
+    if name in BLOCK_TO_ENTITY:
+        eid = BLOCK_TO_ENTITY[name]
+        if eid is None:
+            return None
+        return 'minecraft:' + eid
+    if name.endswith('_shulker_box'):
+        return 'minecraft:shulker_box'
+    if name.endswith('_hanging_sign'):
+        return 'minecraft:hanging_sign'
+    if name.endswith('_sign'):
+        return 'minecraft:sign'
+    if name.endswith('_banner'):
+        return 'minecraft:banner'
+    if name.endswith('_skull') or name.endswith('_head'):
+        return 'minecraft:skull'
+    if name.endswith('_copper_chest'):
+        return 'minecraft:chest'
+    if name.endswith('_shelf'):
+        return 'minecraft:shelf'
+    if 'copper_golem_statue' in name:
+        return 'minecraft:copper_golem_statue'
+    return None
+
+
 class Region(object):
     """Parse a region file into usable containers."""
     # Python 3.2 supports gzip.decompress
@@ -807,7 +1047,9 @@ class SaveFile(object):
     """Interface object for a minecraft save file.
     Methods:
     block(x,y,z): returns relevant block data. Accepts options.
-    surface(x,z): returns the surface block data. Accepts options.
+    surface_block(x,z): returns the surface block data. Accepts options.
+    get_block_entity(x,y,z): mutable NBT payload of a block entity, or None.
+    get_container_items / set_container_items: chest and other container contents.
     Instance Variables:
     save_file: string with file name
     """
@@ -1138,23 +1380,362 @@ class SaveFile(object):
             if k in rot:
                 rot_data[ROT_MAP[k]].payload = rot[k]
 
-    def get_blockentity_from_pos(self, coords):
-        this_chunk = self.get_chunk_from_cord(coords[0], coords[2])
-        all_entities = this_chunk.tags[0].payload["block_entities"].payload
-        entity_payload = None
-        for ent_tag in all_entities:
-            ent = ent_tag.payload
-            this_coord = (ent['x'].payload,ent['y'].payload,ent['z'].payload)
-            if this_coord == coords:
-                entity_payload = ent
-                break
-        return entity_payload
+    def get_data_version(self):
+        """Return the world DataVersion from level.dat, or 0 if unknown."""
+        cached = getattr(self, '_data_version', None)
+        if cached is not None:
+            return cached
+        root = self.dat.tags[0].payload
+        if 'DataVersion' in root:
+            self._data_version = root['DataVersion'].payload
+        elif 'Data' in root and 'DataVersion' in root['Data'].payload:
+            self._data_version = root['Data'].payload['DataVersion'].payload
+        else:
+            self._data_version = 0
+        return self._data_version
 
-    def get_chest_items_from_pos(self,coords):
-        chest = self.get_blockentity_from_pos(coords)
-        if chest is not None:
-            return chest['Items'].payload
+    def _item_uses_components(self):
+        return self.get_data_version() >= DATAVERSION_ITEM_COMPONENTS
+
+    def _block_entities_key(self, chunk):
+        payload = chunk.tags[0].payload
+        if 'block_entities' in payload:
+            return 'block_entities'
+        if 'TileEntities' in payload:
+            return 'TileEntities'
         return None
+
+    def _block_entities_list_tag(self, chunk):
+        key = self._block_entities_key(chunk)
+        if key is None:
+            return None
+        return chunk.tags[0].payload[key]
+
+    def _ensure_block_entities_list(self, chunk):
+        list_tag = self._block_entities_list_tag(chunk)
+        if list_tag is not None:
+            return list_tag
+        key = 'block_entities'
+        if self.get_data_version() and self.get_data_version() < DATAVERSION_BLOCK_ENTITIES:
+            key = 'TileEntities'
+        list_tag = new_tag(9, key, [], named=True, contents_type=10)
+        chunk.tags[0].payload[key] = list_tag
+        return list_tag
+
+    def get_blockentity_from_pos(self, coords):
+        """Return the mutable NBT payload dict of the block entity at coords (x, y, z),
+        or None if there isn't one. Change the returned tags and save to update."""
+        blk_x, blk_y, blk_z = int(coords[0]), int(coords[1]), int(coords[2])
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        if this_chunk is None:
+            return None
+        list_tag = self._block_entities_list_tag(this_chunk)
+        if list_tag is None:
+            return None
+        for ent_tag in list_tag.payload:
+            ent = ent_tag.payload
+            if (ent['x'].payload == blk_x and
+                    ent['y'].payload == blk_y and
+                    ent['z'].payload == blk_z):
+                return ent
+        return None
+
+    def get_block_entity(self, blk_x, blk_y, blk_z):
+        """Return the mutable NBT payload of the block entity at x, y, z, or None."""
+        return self.get_blockentity_from_pos((blk_x, blk_y, blk_z))
+
+    def iter_block_entities(self, blk_x, blk_z):
+        """Yield (x, y, z, payload) for each block entity in the chunk containing x, z."""
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        if this_chunk is None:
+            return
+        list_tag = self._block_entities_list_tag(this_chunk)
+        if list_tag is None:
+            return
+        for ent_tag in list_tag.payload:
+            ent = ent_tag.payload
+            yield (ent['x'].payload, ent['y'].payload, ent['z'].payload, ent)
+
+    def _create_block_entity_tag(self, blk_x, blk_y, blk_z, entity_id):
+        entity_id = namespaced_id(entity_id)
+        payload = {
+            'id': new_tag(8, 'id', entity_id),
+            'x': new_tag(3, 'x', int(blk_x)),
+            'y': new_tag(3, 'y', int(blk_y)),
+            'z': new_tag(3, 'z', int(blk_z)),
+            'keepPacked': new_tag(1, 'keepPacked', 0),
+        }
+        if self._item_uses_components():
+            payload['components'] = new_tag(10, 'components', {})
+        if entity_id in CONTAINER_ENTITY_IDS:
+            payload['Items'] = new_tag(9, 'Items', [], named=True, contents_type=10)
+        return new_tag(10, '', payload, named=False)
+
+    def ensure_block_entity(self, blk_x, blk_y, blk_z, entity_id=None):
+        """Get the block entity at x, y, z, creating one if needed.
+        entity_id is inferred from the block type when omitted.
+        Returns the mutable NBT payload dict, or None if this block has no entity."""
+        existing = self.get_block_entity(blk_x, blk_y, blk_z)
+        if entity_id is None:
+            blk = self.block(blk_x, blk_y, blk_z)
+            if blk is not None and 'B' in blk:
+                entity_id = block_entity_id_for_block(blk['B'])
+        if entity_id is not None:
+            entity_id = namespaced_id(entity_id)
+        if existing is not None:
+            if entity_id is None or existing['id'].payload == entity_id:
+                return existing
+            self.remove_block_entity(blk_x, blk_y, blk_z)
+        if entity_id is None:
+            return None
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        if this_chunk is None:
+            return None
+        list_tag = self._ensure_block_entities_list(this_chunk)
+        ent_tag = self._create_block_entity_tag(blk_x, blk_y, blk_z, entity_id)
+        list_tag.payload.append(ent_tag)
+        list_tag.contents_type = 10
+        return ent_tag.payload
+
+    def set_block_entity_data(self, blk_x, blk_y, blk_z, data, entity_id=None):
+        """Merge python dict `data` into the block entity at x, y, z (creating it if needed).
+        Values may be primitives, nested dicts/lists, or NBT tags.
+        Position tags x, y, z are kept in sync with the coordinates.
+        Returns the mutable NBT payload, or None on failure."""
+        ent = self.ensure_block_entity(blk_x, blk_y, blk_z, entity_id)
+        if ent is None:
+            return None
+        for key, value in data.items():
+            if key in ('x', 'y', 'z'):
+                continue
+            if key == 'Items':
+                item_tags = []
+                for i, it in enumerate(value):
+                    if it is None:
+                        continue
+                    if isinstance(it, NbtTagBase):
+                        item_tags.append(it)
+                    else:
+                        d = dict(it)
+                        if 'Slot' not in d and 'slot' not in d:
+                            d['Slot'] = i
+                        item_tags.append(self.item_from_dict(d))
+                ent['Items'] = new_tag(9, 'Items', item_tags, named=True, contents_type=10)
+                continue
+            if isinstance(value, NbtTagBase):
+                value.name = key
+                value.named = True
+                ent[key] = value
+            else:
+                field_type = BLOCK_ENTITY_FIELD_TYPES.get(key)
+                ent[key] = python_to_nbt(value, name=key, named=True, tag_type=field_type)
+        ent['x'].payload = int(blk_x)
+        ent['y'].payload = int(blk_y)
+        ent['z'].payload = int(blk_z)
+        return ent
+
+    def remove_block_entity(self, blk_x, blk_y, blk_z):
+        """Remove the block entity at x, y, z. Return True if one was removed."""
+        this_chunk = self.get_chunk_from_cord(blk_x, blk_z)
+        if this_chunk is None:
+            return False
+        list_tag = self._block_entities_list_tag(this_chunk)
+        if list_tag is None:
+            return False
+        blk_x, blk_y, blk_z = int(blk_x), int(blk_y), int(blk_z)
+        new_payload = []
+        removed = False
+        for ent_tag in list_tag.payload:
+            ent = ent_tag.payload
+            if (ent['x'].payload == blk_x and
+                    ent['y'].payload == blk_y and
+                    ent['z'].payload == blk_z):
+                removed = True
+                continue
+            new_payload.append(ent_tag)
+        list_tag.payload = new_payload
+        if not new_payload:
+            list_tag.contents_type = 0
+        return removed
+
+    def _sync_block_entity_for_block(self, blk_x, blk_y, blk_z, block_name):
+        """Create or remove the block entity to match the block type at this position."""
+        new_eid = block_entity_id_for_block(block_name)
+        existing = self.get_block_entity(blk_x, blk_y, blk_z)
+        if existing is not None:
+            old_eid = existing['id'].payload
+            if new_eid == old_eid:
+                return existing
+            self.remove_block_entity(blk_x, blk_y, blk_z)
+        if new_eid:
+            return self.ensure_block_entity(blk_x, blk_y, blk_z, new_eid)
+        return None
+
+    def item_from_dict(self, item, named=False):
+        """Build an unnamed TAG_Compound for an item stack from a python dict.
+        Keys: id (or B), count, Slot (optional), components (optional).
+        Extra keys are converted with python_to_nbt.
+        """
+        if item is None:
+            return None
+        if isinstance(item, NbtTagBase):
+            item.named = named
+            return item
+        payload = {}
+        item_id = item.get('id', item.get('B'))
+        if item_id is None:
+            raise ValueError('item dict needs an id')
+        payload['id'] = new_tag(8, 'id', namespaced_id(item_id))
+        if self._item_uses_components():
+            count = item.get('count', item.get('Count', 1))
+            payload['count'] = new_tag(3, 'count', int(count))
+            comps = item.get('components')
+            if comps:
+                payload['components'] = python_to_nbt(comps, name='components', tag_type=10)
+        else:
+            count = item.get('Count', item.get('count', 1))
+            payload['Count'] = new_tag(1, 'Count', int(count))
+            old_tag = item.get('tag')
+            if old_tag:
+                payload['tag'] = python_to_nbt(old_tag, name='tag', tag_type=10)
+        slot = item.get('Slot', item.get('slot'))
+        if slot is not None:
+            payload['Slot'] = new_tag(1, 'Slot', int(slot))
+        known = {'id', 'B', 'count', 'Count', 'Slot', 'slot', 'components', 'tag'}
+        for key, value in item.items():
+            if key in known or key in payload:
+                continue
+            payload[key] = python_to_nbt(value, name=key, named=True)
+        return new_tag(10, '', payload, named=named)
+
+    def item_to_dict(self, item_tag):
+        """Convert an item TAG_Compound (or its payload dict) to a python dict."""
+        if item_tag is None:
+            return None
+        raw = item_tag.payload if isinstance(item_tag, NbtTagBase) else item_tag
+        result = {}
+        if 'id' in raw:
+            result['id'] = raw['id'].payload
+        if 'count' in raw:
+            result['count'] = raw['count'].payload
+        elif 'Count' in raw:
+            result['count'] = raw['Count'].payload
+        if 'Slot' in raw:
+            result['Slot'] = raw['Slot'].payload
+        if 'components' in raw:
+            result['components'] = nbt_to_python(raw['components'])
+        if 'tag' in raw:
+            result['tag'] = nbt_to_python(raw['tag'])
+        skip = {'id', 'count', 'Count', 'Slot', 'components', 'tag'}
+        for key, value in raw.items():
+            if key not in skip:
+                result[key] = nbt_to_python(value)
+        return result
+
+    def _ensure_items_list(self, ent):
+        if 'Items' in ent:
+            tag = ent['Items']
+            if tag.payload:
+                tag.contents_type = 10
+            return tag
+        tag = new_tag(9, 'Items', [], named=True, contents_type=10)
+        ent['Items'] = tag
+        return tag
+
+    def _clear_container_loot(self, ent):
+        for key in ('LootTable', 'LootTableSeed'):
+            if key in ent:
+                del ent[key]
+
+    def get_container_items(self, blk_x, blk_y, blk_z):
+        """Return the items in the container at x, y, z as a list of dicts.
+        Each dict has id, count, Slot, and components when present.
+        Empty containers return []. No block entity returns None.
+        """
+        ent = self.get_block_entity(blk_x, blk_y, blk_z)
+        if ent is None:
+            return None
+        if 'Items' not in ent:
+            return []
+        return [self.item_to_dict(it) for it in ent['Items'].payload]
+
+    def set_container_items(self, blk_x, blk_y, blk_z, items, entity_id=None):
+        """Replace all items in the container at x, y, z.
+        items : list of item dicts (Slot defaults to list index),
+                or a dict mapping slot number -> item dict (or None to skip).
+        Also creates the block entity when the block is a container.
+        Setting items clears any loot table so the items actually appear.
+        """
+        ent = self.ensure_block_entity(blk_x, blk_y, blk_z, entity_id)
+        if ent is None:
+            return None
+        if isinstance(items, dict) and ('id' in items or 'B' in items):
+            items = [items]
+        item_tags = []
+        if isinstance(items, dict):
+            for slot, it in items.items():
+                if it is None:
+                    continue
+                if isinstance(it, NbtTagBase):
+                    if 'Slot' not in it.payload:
+                        it.payload['Slot'] = new_tag(1, 'Slot', int(slot))
+                    item_tags.append(it)
+                else:
+                    d = dict(it)
+                    d['Slot'] = int(slot)
+                    item_tags.append(self.item_from_dict(d))
+        else:
+            for i, it in enumerate(items):
+                if it is None:
+                    continue
+                if isinstance(it, NbtTagBase):
+                    item_tags.append(it)
+                else:
+                    d = dict(it)
+                    if 'Slot' not in d and 'slot' not in d:
+                        d['Slot'] = i
+                    item_tags.append(self.item_from_dict(d))
+        ent['Items'] = new_tag(9, 'Items', item_tags, named=True, contents_type=10)
+        self._clear_container_loot(ent)
+        return True
+
+    def set_container_item(self, blk_x, blk_y, blk_z, slot, item, entity_id=None):
+        """Set a single container slot. item is a dict, NBT tag, or None to clear.
+        Returns True on success, None if there is no container block entity.
+        """
+        ent = self.ensure_block_entity(blk_x, blk_y, blk_z, entity_id)
+        if ent is None:
+            return None
+        items_tag = self._ensure_items_list(ent)
+        slot = int(slot)
+        kept = []
+        for it in items_tag.payload:
+            this_slot = it.payload.get('Slot')
+            if this_slot is not None and this_slot.payload == slot:
+                continue
+            kept.append(it)
+        items_tag.payload = kept
+        if item is not None:
+            if isinstance(item, NbtTagBase):
+                item.payload['Slot'] = new_tag(1, 'Slot', slot)
+                items_tag.payload.append(item)
+            else:
+                d = dict(item)
+                d['Slot'] = slot
+                items_tag.payload.append(self.item_from_dict(d))
+            items_tag.contents_type = 10
+        elif not items_tag.payload:
+            items_tag.contents_type = 0
+        self._clear_container_loot(ent)
+        return True
+
+    def get_chest_items_from_pos(self, coords):
+        """Return chest/container items at coords (x, y, z) as a list of dicts."""
+        return self.get_container_items(int(coords[0]), int(coords[1]), int(coords[2]))
+
+    def set_chest_items_from_pos(self, coords, items):
+        """Replace chest/container items at coords (x, y, z). See set_container_items."""
+        return self.set_container_items(int(coords[0]), int(coords[1]), int(coords[2]), items)
 
 
     def all_height_data(self, blk_x, blk_z):
@@ -1402,6 +1983,8 @@ class SaveFile(object):
             chunkdata = this_chunk.tags[0].payload
             if "isLightOn" in chunkdata:
                 chunkdata["isLightOn"].payload = 0
+        # Keep block-entity NBT in sync with the block type (chests, signs, etc.)
+        self._sync_block_entity_for_block(blk_x, blk_y, blk_z, sett['B'])
         return True
 
     def surface_block(self, blk_x, blk_z, options='B'):
@@ -1699,6 +2282,13 @@ if __name__ == '__main__':
     #     sections[i] = newsec
 
     # chest = mc_level.get_chest_items_from_pos((51,71,-39))
+    # mc_level.set_chest_items_from_pos((51, 71, -39), [
+    #     {'id': 'minecraft:diamond', 'count': 64, 'Slot': 0},
+    #     {'id': 'minecraft:diamond_sword', 'count': 1, 'Slot': 1,
+    #      'components': {'minecraft:enchantments': {'minecraft:sharpness': 5}}},
+    # ])
+    # # or: mc_level.set_container_item(x, y, z, 0, {'id': 'minecraft:apple', 'count': 16})
+    # # raw block-entity NBT: ent = mc_level.get_block_entity(x, y, z)
 
     # print(f'chunk at {x}, {z}')
     # print(mc_level.get_chunk_from_cord(x, z))
