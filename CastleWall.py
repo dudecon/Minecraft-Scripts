@@ -1,5 +1,8 @@
-# Version 1
+# Version 2
 """This takes a MineCraft level and builds a castle wall around the player.
+
+The wall follows the terrain, with crenellated battlements, a walkway
+along the inside, and occasional stairs up from the courtyard.
 
 Written by Paul Spooner, with God's help.
 See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
@@ -12,7 +15,7 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 
 LOAD_NAME = "TestB"
 
-# The mountain is centered on the player
+# The walled area is centered on the player
 
 # How large (maximum) do you want the walled area?
 # for example, RADIUS = 10 will make a 21 block diameter walled area
@@ -21,35 +24,87 @@ LOAD_NAME = "TestB"
 # so the size will be much smaller on slopes.
 RADIUS = 19.5
 
-# How tall do you want the wall?
+# How tall do you want the wall, up to the walkway?
+# Crenellations sit on top of this.
 # default 5
 HEIGHT = 5
 
-# How much do you want the area flattened?
+# How thick should the wall be?
+# 1 is a single row of blocks (tight, walk in the crenels)
+# 2 is an outer battlement plus an inner walkway (default)
+# 3 is a spacious rampart
+WALL_THICKNESS = 2
+
+# How much do you want the courtyard flattened?
 # the height differences in the terrain inside the
 # wall will be divided by FLATTENING
+# This does not flatten the walls; they still follow the land.
 # for no flattening, set to 1
 # default is 2.618
 FLATTENING = 2.618
 
 # What material should the wall be made from?
-WALL_INFO = {'B':'minecraft:' + 'stone_bricks'}
+WALL_INFO = {'B': 'minecraft:' + 'stone_bricks'}
 
 # if you need more blocks, what should you fill with?
-FILL_INFO = {'B':'minecraft:' + 'stone'}
+# Used under the wall as a foundation, and under stair runs.
+FILL_INFO = {'B': 'minecraft:' + 'stone'}
+
+# What stairs should lead up to the walkway?
+# facing is filled in when they are placed.
+STAIR_INFO = {'B': 'minecraft:stone_brick_stairs', 'half': 'bottom', 'facing': 'east'}
 
 
 #####################
 # Advanced options! #
 #####################
 
-# What is the maximum vertical distance the walled zome should jump over?
+# What is the maximum vertical distance the walled zone should jump over?
 # If there's a ditch or cliff higher than MAXVERTICALGAP
 # the wall will not extend beyond it.
 # Set higher if you don't mind large vertical cliffs inside your base.
 # You may also need to set RADIUS high, in order to push it over the edge.
 # default 3
 MAXVERTICALGAP = 3
+
+# Do you want crenellations (merlons and crenels) on top of the wall?
+# True makes a battlement (default)
+# False leaves a solid parapet
+CRENELLATED = True
+
+# How wide should each merlon (the raised bit) be, in blocks?
+# default 2
+MERLON_WIDTH = 2
+
+# How wide should each crenel (the gap you look through) be, in blocks?
+# default 2
+CRENEL_WIDTH = 2
+
+# How tall should the merlons be, above the walkway?
+# 2 is a full-height merlon you can take cover behind (default)
+MERLON_HEIGHT = 2
+
+# How tall should the parapet be in the crenels, above the walkway?
+# 1 is a chest-high wall you can see over (default)
+# 0 is an open gap
+CRENEL_HEIGHT = 1
+
+# How often do you want stairs from the courtyard up to the walkway?
+# This is a spacing around the perimeter, in wall columns.
+# 8 is frequent, 16 is occasional, 24 is sparse.
+# default 12
+STAIR_SPACING = 12
+
+# How deep should the foundation go below the local ground?
+# Helps the wall not hover over little dips.
+# default 2
+FOUNDATION = 2
+
+# How much should the walkway height be smoothed along the wall?
+# 0 follows every bump in the land.
+# 2 is a gentle rampart that still follows hills (default)
+# 5 is a very even walkway
+WALL_SMOOTHING = 2
 
 # Do you want a bunch of info on what's going on?
 # True will print a lot of stuff, slows it down a little
@@ -66,13 +121,32 @@ if RADIUS < 1:
     print("RADIUS is less than 1, setting it to 5")
     RADIUS = 5
 if HEIGHT < 1:
-    print("HEIGHT is less than 1, setting it to 15")
+    print("HEIGHT is less than 1, setting it to 5")
     HEIGHT = 5
-    print("This script doesn't put stuff lower than it already is.",
-          "Try StarStone with craters turned on.")
 if FLATTENING < 1:
     print("FLATTENING is less than one, setting to one")
     FLATTENING = 1
+WALL_THICKNESS = int(WALL_THICKNESS)
+if WALL_THICKNESS < 1:
+    WALL_THICKNESS = 1
+if MERLON_WIDTH < 1:
+    MERLON_WIDTH = 1
+if CRENEL_WIDTH < 0:
+    CRENEL_WIDTH = 0
+if MERLON_HEIGHT < 0:
+    MERLON_HEIGHT = 0
+if CRENEL_HEIGHT < 0:
+    CRENEL_HEIGHT = 0
+if STAIR_SPACING < 4:
+    STAIR_SPACING = 4
+if FOUNDATION < 0:
+    FOUNDATION = 0
+if WALL_SMOOTHING < 0:
+    WALL_SMOOTHING = 0
+if CRENELLATED not in (True, False):
+    CRENELLATED = True
+if VERBOSE not in (True, False):
+    VERBOSE = False
 
 
 # The following is an interface class for .mclevel data for minecraft savefiles.
@@ -85,8 +159,12 @@ MAPBTM = mcInterface.SaveFile.map_bottom
 
 # Now, on to the actual code.
 
-from random import random
-from math import sqrt
+from math import sqrt, atan2
+
+AIR_INFO = {'B': 'minecraft:air'}
+CARDINAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
+DIR_FACING = {(1, 0): 'east', (-1, 0): 'west', (0, 1): 'south', (0, -1): 'north'}
+
 
 def loc_to_coords(loc):
     """Take a location string and return the x z location"""
@@ -153,6 +231,21 @@ class Square(object):
             flag = False
         self.weight = new_weight
         return flag
+
+
+class WallColumn(object):
+    """One column of the castle wall, including walkway height."""
+
+    def __init__(self, x, z, orig_y):
+        self.x = x
+        self.z = z
+        # orig_y is the heightmap value (first air above the ground)
+        self.orig_y = orig_y
+        self.walk_top = orig_y + HEIGHT
+        self.is_outer = False
+        self.is_inner = False
+        self.is_corner = False
+        self.inwards = []
 
 
 class WalledArea(object):
@@ -241,18 +334,6 @@ class WalledArea(object):
         for square in self.interior.values():
             square.grow()
 
-    def find_max_adjacent(self):
-        """for each exterior square, find the max y of the adjacent squares"""
-        all_squares = {**self.outside, **self.interior}
-        for center_square in self.outside.values():
-            max_y = center_square.y
-            for loc_string in center_square.adj_sqares:
-                if loc_string not in all_squares: continue
-                cur_x, cur_z = loc_to_coords(loc_string)
-                adj_square = all_squares[loc_string]
-                max_y = max(max_y,adj_square.y)
-            center_square.max_adj_y = max_y
-
     def origin_square(self, x, z):
         """Add a square to the map as a fully weighted square"""
         # check to see if this square is already in the lists
@@ -287,36 +368,163 @@ class WalledArea(object):
         # the squares fully enclosed inside
         self.interior = {}
 
-    def create(self):
-        Block = self.save_file.block
+    def lookup_square(self, x, z):
+        """Return the Square at x, z from interior or outside, or None."""
+        loc = coords_to_loc((x, z))
+        if loc in self.interior:
+            return self.interior[loc]
+        if loc in self.outside:
+            return self.outside[loc]
+        return None
+
+    def column_orig_y(self, x, z):
+        """Original heightmap Y at x, z, before courtyard flattening."""
+        square = self.lookup_square(x, z)
+        if square is not None and square.y is not None:
+            return square.y
+        return self.save_file.get_heightmap(x, z, "MOTION_BLOCKING_NO_LEAVES")
+
+    def cardinal_inward(self, x, z):
+        """Directions from this wall square into the courtyard."""
+        dirs = []
+        for dx, dz in CARDINAL:
+            loc = coords_to_loc((x + dx, z + dz))
+            if loc in self.interior:
+                dirs.append((dx, dz))
+        if dirs:
+            return dirs
+        # fallback: step toward the origin
+        ox = self.origin.x - x
+        oz = self.origin.z - z
+        if ox == 0 and oz == 0:
+            return [(0, 1)]
+        if abs(ox) >= abs(oz):
+            return [(1 if ox > 0 else -1, 0)]
+        return [(0, 1 if oz > 0 else -1)]
+
+    def gather_wall_columns(self):
+        """Build the thick wall ring from the outside perimeter, inward."""
+        columns = {}
+
+        def add_col(x, z, orig_y, outer=False, inner=False, inward=None):
+            if orig_y is None:
+                return None
+            key = (x, z)
+            col = columns.get(key)
+            if col is None:
+                col = WallColumn(x, z, orig_y)
+                columns[key] = col
+            if outer:
+                col.is_outer = True
+            if inner:
+                col.is_inner = True
+            if inward is not None and inward not in col.inwards:
+                col.inwards.append(inward)
+            return col
+
+        for square in self.outside.values():
+            if square.y is None:
+                continue
+            dirs = self.cardinal_inward(square.x, square.z)
+            corner = len(dirs) != 1
+            for d in dirs:
+                dx, dz = d
+                for offset in range(WALL_THICKNESS):
+                    x = square.x + dx * offset
+                    z = square.z + dz * offset
+                    orig_y = self.column_orig_y(x, z)
+                    add_col(x, z, orig_y,
+                            outer=(offset == 0),
+                            inner=(offset == WALL_THICKNESS - 1),
+                            inward=d)
+            key = (square.x, square.z)
+            if corner and key in columns:
+                columns[key].is_corner = True
+        return columns
+
+    def smooth_walkway(self, columns):
+        """Ease the walkway along the wall so it ramps with the land."""
+        keys = list(columns.keys())
+        for _ in range(int(WALL_SMOOTHING)):
+            new_tops = {}
+            for key in keys:
+                col = columns[key]
+                ys = [col.walk_top]
+                for dx, dz in CARDINAL:
+                    nb = columns.get((col.x + dx, col.z + dz))
+                    if nb is not None:
+                        ys.append(nb.walk_top)
+                new_tops[key] = int(sum(ys) / float(len(ys)) + 0.5)
+            for key, top in new_tops.items():
+                floor_min = columns[key].orig_y + 2
+                columns[key].walk_top = max(top, floor_min)
+        # keep neighboring walkway heights a 1-block step apart
+        for _ in range(WALL_THICKNESS + 4):
+            changed = False
+            for col in columns.values():
+                for dx, dz in CARDINAL:
+                    nb = columns.get((col.x + dx, col.z + dz))
+                    if nb is None:
+                        continue
+                    if nb.walk_top > col.walk_top + 1:
+                        col.walk_top = nb.walk_top - 1
+                        changed = True
+            if not changed:
+                break
+        for col in columns.values():
+            if col.walk_top > MAPTOP - MERLON_HEIGHT - 1:
+                col.walk_top = MAPTOP - MERLON_HEIGHT - 1
+
+    def merlon_at(self, col):
+        """True if this outer column should get a raised merlon."""
+        if not CRENELLATED:
+            return True
+        if col.is_corner:
+            return True
+        period = MERLON_WIDTH + CRENEL_WIDTH
+        if period < 1:
+            return True
+        if col.inwards:
+            dx, dz = col.inwards[0]
+            along = col.z if dx != 0 else col.x
+        else:
+            along = col.x + col.z
+        return (along % period) < MERLON_WIDTH
+
+    def clear_above(self, x, y_start, z):
+        """Clear existing blocks from y_start up to the current surface."""
+        top = self.save_file.get_heightmap(x, z, "WORLD_SURFACE")
+        if top is None:
+            return None
         set_block = self.save_file.set_block
-        origin_weight = self.origin.weight
+        if y_start < top:
+            for this_y in range(y_start, top):
+                set_block(x, this_y, z, AIR_INFO)
+            self.save_file.decrease_all_heightmaps(x, y_start, z)
+        return True
+
+    def flatten_courtyard(self, wall_keys):
+        """Flatten the bailey, leaving wall-thickness columns alone."""
         origin_y = self.origin.y
-        # the scaling factor is based on the origin_weight
-        # depth_scale = 6 / origin_weight
-        if VERBOSE:
-            print(len(self.interior), 'interior squares')
-            print(len(self.outside), 'wall squares')
-        # Default "air" block
-        air_block_data = {'B': 'minecraft:air'}
+        set_block = self.save_file.set_block
         for square in self.interior.values():
             y = square.y
-            if y is None: continue
+            if y is None:
+                continue
             x = square.x
             z = square.z
-            # make it the appropriate depth
+            if (x, z) in wall_keys:
+                continue
             original_y_diff = origin_y - y
-            scaled_y_diff = int( 0.5 + original_y_diff / FLATTENING)
+            scaled_y_diff = int(0.5 + original_y_diff / FLATTENING)
             new_y = origin_y - scaled_y_diff
             y_change = new_y - y
             if y_change < 0:
-                # cut it down
-                top_y = self.save_file.get_heightmap(x,z)
+                top_y = self.save_file.get_heightmap(x, z)
                 for this_y in range(new_y, top_y):
-                    set_block(x,this_y,z,air_block_data)
+                    set_block(x, this_y, z, AIR_INFO)
                 self.save_file.decrease_all_heightmaps(x, new_y, z)
             elif y_change > 0:
-                # fill it
                 for this_y in range(y, new_y):
                     set_block(x, this_y, z, FILL_INFO)
                 self.save_file.increase_all_heightmaps(x, new_y, z)
@@ -324,17 +532,135 @@ class WalledArea(object):
             if VERBOSE:
                 print("change was " + str(y_change) + " at coordinates " + str((x, z)),
                       'with a final y value of', new_y)
-        self.find_max_adjacent()
-        for wall_square in self.outside.values():
-            y = wall_square.y
-            if y is None: continue
-            x = wall_square.x
-            z = wall_square.z
-            top_y = wall_square.max_adj_y + HEIGHT
-            # y-1 to give the walls a foundation
-            for this_y in range(y-1, top_y):
+
+    def build_column(self, col, columns):
+        """Place foundation, wall body, walkway, and battlement for one column."""
+        x = col.x
+        z = col.z
+        walk_top = col.walk_top
+        set_block = self.save_file.set_block
+        low = col.orig_y
+        for dx, dz in CARDINAL:
+            nb = columns.get((x + dx, z + dz))
+            if nb is not None:
+                low = min(low, nb.orig_y)
+        bottom = low - FOUNDATION
+        if bottom < MAPBTM:
+            bottom = MAPBTM
+        surface = col.orig_y
+        # solid body: foundation up through the walkway floor
+        for this_y in range(bottom, walk_top):
+            if this_y < surface - 1:
+                set_block(x, this_y, z, FILL_INFO)
+            else:
                 set_block(x, this_y, z, WALL_INFO)
-            self.save_file.increase_all_heightmaps(x, top_y, z)
+        self.clear_above(x, walk_top, z)
+        if col.is_outer:
+            parapet = CRENEL_HEIGHT
+            if self.merlon_at(col):
+                parapet = max(parapet, MERLON_HEIGHT)
+            for i in range(parapet):
+                set_block(x, walk_top + i, z, WALL_INFO)
+            self.save_file.increase_all_heightmaps(x, walk_top + parapet, z)
+        else:
+            # inner walkway: headroom so you can walk it
+            for this_y in range(walk_top, walk_top + 3):
+                set_block(x, this_y, z, AIR_INFO)
+            self.save_file.increase_all_heightmaps(x, walk_top, z)
+
+    def place_walkway_steps(self, columns):
+        """Turn 1-block walkway height changes into stairs."""
+        set_block = self.save_file.set_block
+        for col in columns.values():
+            if col.is_outer and WALL_THICKNESS > 1:
+                # keep the outer battlement as full blocks
+                continue
+            for dx, dz in CARDINAL:
+                nb = columns.get((col.x + dx, col.z + dz))
+                if nb is None:
+                    continue
+                if nb.walk_top == col.walk_top + 1:
+                    info = STAIR_INFO.copy()
+                    info['facing'] = DIR_FACING[(dx, dz)]
+                    set_block(col.x, col.walk_top - 1, col.z, info)
+                    break
+
+    def place_access_stairs(self, columns):
+        """Build occasional stair runs from the courtyard up to the walkway."""
+        ox = self.origin.x
+        oz = self.origin.z
+        inners = [c for c in columns.values()
+                  if c.is_inner and len(c.inwards) == 1]
+        inners.sort(key=lambda c: atan2(c.z - oz, c.x - ox))
+        placed = 0
+        set_block = self.save_file.set_block
+        for i, col in enumerate(inners):
+            if STAIR_SPACING > 0 and (i % STAIR_SPACING) != 0:
+                continue
+            dx, dz = col.inwards[0]
+            loc = coords_to_loc((col.x + dx, col.z + dz))
+            if loc not in self.interior:
+                continue
+            if (col.x + dx, col.z + dz) in columns:
+                continue
+            court = self.interior[loc]
+            if court.y is None:
+                continue
+            court_y = court.y
+            rise = col.walk_top - court_y
+            if rise < 2:
+                continue
+            # make sure the whole run stays in the courtyard
+            blocked = False
+            for k in range(1, rise + 1):
+                px = col.x + dx * k
+                pz = col.z + dz * k
+                if (px, pz) in columns:
+                    blocked = True
+                    break
+                ploc = coords_to_loc((px, pz))
+                if ploc not in self.interior:
+                    blocked = True
+                    break
+            if blocked:
+                continue
+            facing = DIR_FACING[(-dx, -dz)]
+            info = STAIR_INFO.copy()
+            info['facing'] = facing
+            for k in range(1, rise + 1):
+                px = col.x + dx * k
+                pz = col.z + dz * k
+                py = col.walk_top - 1 - k
+                # fill under the stair so it does not float
+                for fy in range(court_y - 1, py):
+                    set_block(px, fy, pz, FILL_INFO)
+                set_block(px, py, pz, info)
+                for ay in range(py + 1, py + 4):
+                    set_block(px, ay, pz, AIR_INFO)
+                self.save_file.decrease_all_heightmaps(px, py + 1, pz)
+                self.save_file.increase_all_heightmaps(px, py + 1, pz)
+            placed += 1
+            if VERBOSE:
+                print("Stairs up to walkway at", col.x, col.z, "rise", rise)
+        return placed
+
+    def create(self):
+        if VERBOSE:
+            print(len(self.interior), 'interior squares')
+            print(len(self.outside), 'perimeter squares')
+        columns = self.gather_wall_columns()
+        if VERBOSE:
+            print(len(columns), 'wall columns (thickness', WALL_THICKNESS, ')')
+        self.smooth_walkway(columns)
+        self.flatten_courtyard(set(columns.keys()))
+        if VERBOSE:
+            print("Building crenellated walls")
+        for col in columns.values():
+            self.build_column(col, columns)
+        self.place_walkway_steps(columns)
+        n_stairs = self.place_access_stairs(columns)
+        print("Built {0} wall columns, {1} stair runs to the walkway".format(
+            len(columns), n_stairs))
 
 def main(the_map: mcInterface.SaveFile):
     """Load the file, do the stuff, and save the new file.
@@ -349,7 +675,7 @@ def main(the_map: mcInterface.SaveFile):
             print("Expansion " + str(i + 1) + " of " + str(RADIUS) + " done")
     num_of_squares = len(plot.interior)
     print("found " + str(num_of_squares) + " included block columns")
-    print("Flattening and walling")
+    print("Flattening courtyard and raising crenellated walls")
     plot.create()
     return None
 
@@ -375,6 +701,3 @@ def standalone():
 
 if __name__ == '__main__':
     standalone()
-
-# Needed updates:
-# flood-fill trees and foliage
