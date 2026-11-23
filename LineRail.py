@@ -12,7 +12,7 @@ See more at: http://www.peripheralarbor.com/minecraft/minecraftscripts.html
 
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
-LOADNAME = "TestB"
+LOAD_NAME = "TestB"
 
 # starts at the player's location
 
@@ -294,7 +294,7 @@ def main(the_map, origin=None, **settings):
 def standalone():
     print("Importing the map")
     try:
-        the_map = mcInterface.SaveFile(LOADNAME)
+        the_map = mcInterface.SaveFile(LOAD_NAME)
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None

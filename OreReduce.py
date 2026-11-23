@@ -16,7 +16,7 @@ from random import random
 
 # This is the name of the map to edit.
 # Make a backup if you are experimenting!
-LOADNAME = "TestB"
+LOAD_NAME = "TestB"
 
 # the search will be around the player
 # How large an area do you want to search?
@@ -191,7 +191,7 @@ def standalone():
     """
     print("Importing the map")
     try:
-        the_map = mcInterface.SaveFile(LOADNAME)
+        the_map = mcInterface.SaveFile(LOAD_NAME)
     except IOError:
         print('File name invalid or save file otherwise corrupted. Aborting')
         return None
